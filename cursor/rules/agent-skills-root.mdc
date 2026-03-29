@@ -1,0 +1,37 @@
+---
+description: Canonical agent skills hub — AGENT_SKILLS_ROOT; all new Cursor skills must live under hub cursor/skills
+alwaysApply: true
+---
+
+# Agent skills root (`AGENT_SKILLS_ROOT`)
+
+## Canonical location
+
+- **Environment variable:** `AGENT_SKILLS_ROOT` — user-level on this machine; value is the root of the shared skills hub (default: `C:\Users\rentk\mihir\agent-skills`).
+- **Cursor personal skills (authoring path):** `%AGENT_SKILLS_ROOT%\cursor\skills\<skill-name>\SKILL.md`
+- **Discovery:** `%USERPROFILE%\.cursor\skills` is a **directory junction** to `%AGENT_SKILLS_ROOT%\cursor\skills`. Editing either path is the same storage.
+
+## Mandatory rule for new skills
+
+1. When you **create or add** a new Cursor skill, you MUST place it only under **`%AGENT_SKILLS_ROOT%\cursor\skills\<skill-name>\SKILL.md`** (resolve the env var from the user profile, or use the expanded path above).
+2. Do **not** create a duplicate skill tree only under `~/.cursor/skills` that bypasses the hub; the junction already maps there to the hub.
+3. After adding a skill, update **`%AGENT_SKILLS_ROOT%\README.md`** and **`%AGENT_SKILLS_ROOT%\INVENTORY.md`** if the inventory documents Cursor skills (keep the hub self-describing).
+4. For **project-scoped** skills (`.cursor/skills/` inside a repo), still document them in the hub inventory when they are meant to be machine-wide conventions, or keep them repo-local per team policy — but **personal/global** skills always use the hub path above.
+
+## Other agents
+
+- **Claude Code:** user rule at `~/.claude/rules/agent-skills-root.md` mirrors this policy for authored markdown skills and shared playbooks under `%AGENT_SKILLS_ROOT%`.
+- **Shared instructions** for VS Code–family chat: `%AGENT_SKILLS_ROOT%\shared\instructions\` is registered in `chat.instructionsFilesLocations`.
+
+## Integrity and repair (foolproof)
+
+- **Verify** (must exit 0): run  
+  `powershell -NoProfile -ExecutionPolicy Bypass -File "%AGENT_SKILLS_ROOT%\scripts\Verify-AgentSkillsEnv.ps1"`
+- **Repair / new machine**: run  
+  `powershell -NoProfile -ExecutionPolicy Bypass -File "%AGENT_SKILLS_ROOT%\scripts\Install-AgentSkillsEnv.ps1"`  
+  Then **restart** Cursor, VS Code, and Antigravity. Details: `%AGENT_SKILLS_ROOT%\FOOLPROOF-SETUP.md`.
+- **Shell sessions:** PowerShell loads `AGENT_SKILLS_ROOT` from the user registry or falls back to this hub via `Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1` (installed by the script).
+
+## Reference
+
+When instructing the user or other tools, cite **`AGENT_SKILLS_ROOT`** so shells and docs stay consistent.

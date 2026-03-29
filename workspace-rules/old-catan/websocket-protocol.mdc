@@ -1,0 +1,40 @@
+---
+description: WebSocket message protocol between frontend and backend
+globs: "{backend/app.py,frontend/js/main.js,frontend/js/game-controller.js}"
+alwaysApply: false
+---
+
+# WebSocket Protocol
+
+## Client → Server
+
+### `create_game`
+```json
+{"type": "create_game", "num_ai": 1, "player_names": ["You", "Bot1", "Bot2"]}
+```
+
+### `action`
+```json
+{"type": "action", "action": {"action": "roll_dice"}}
+{"type": "action", "action": {"action": "place_settlement", "vertex_id": "0,0|0,1|1,0"}}
+{"type": "action", "action": {"action": "build_road", "edge_id": "..."}}
+{"type": "action", "action": {"action": "discard", "resources": {"lumber": 2}, "player_index": 0}}
+{"type": "action", "action": {"action": "move_robber", "hex_q": 2, "hex_r": 3, "steal_from_player_index": 1}}
+{"type": "action", "action": {"action": "play_dev_card", "card_type": "knight", "params": {"hex_q": 1, "hex_r": 2}}}
+{"type": "action", "action": {"action": "end_turn"}}
+```
+
+### `trade`
+```json
+{"type": "trade", "give": {"lumber": 4}, "receive": {"grain": 1}, "trade_with": "bank"}
+```
+
+## Server → Client
+
+### `game_state`
+Full state including `phase`, `turn_phase`, `current_player_index`, `players` (public + private for current), `board`, `dice`, `valid_actions`, `log`, `winner_index`, `discard_player_index`, `waiting_for_discard`, `waiting_for_robber`.
+
+### `error`
+```json
+{"type": "error", "message": "Invalid placement"}
+```

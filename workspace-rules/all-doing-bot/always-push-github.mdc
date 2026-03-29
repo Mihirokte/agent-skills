@@ -1,0 +1,16 @@
+---
+description: After making changes, always commit and push to GitHub
+alwaysApply: true
+---
+
+# Always Push to GitHub
+
+After editing files in this repo, **always** commit and push to GitHub so the remote stays up to date.
+
+1. **Stage** the changed files (exclude junk: `AnyDesk.exe`, `gcapi.dll`, `*.lock`, `.webp`, or anything outside the repo).
+2. **Commit** with a short, clear message describing the change.
+3. **Push** to `origin main`: `git push origin main`.
+4. If the change was in **apps/frontend**, also update GitHub Pages:  
+   `git subtree push --prefix apps/frontend origin gh-pages`.
+
+Do this in the same session as the edits; do not leave the user to push manually.

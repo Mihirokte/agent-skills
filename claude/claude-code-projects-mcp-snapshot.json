@@ -1,0 +1,197 @@
+﻿{
+    "C:/Users/rentk/mihir":  {
+                                 "mcpContextUris":  [
+
+                                                    ],
+                                 "mcpServers":  {
+
+                                                },
+                                 "disabledMcpjsonServers":  [
+
+                                                            ],
+                                 "enabledMcpjsonServers":  [
+
+                                                           ]
+                             },
+    "C:\\Users\\rentk\\mihir\\pokecity\\.claude\\worktrees\\kind-greider":  {
+                                                                                "mcpContextUris":  [
+
+                                                                                                   ],
+                                                                                "mcpServers":  null,
+                                                                                "disabledMcpjsonServers":  [
+
+                                                                                                           ],
+                                                                                "enabledMcpjsonServers":  [
+
+                                                                                                          ]
+                                                                            },
+    "C:\\Users\\rentk\\.claude-worktrees\\pokecity\\vigilant-tu":  {
+                                                                       "mcpContextUris":  [
+
+                                                                                          ],
+                                                                       "mcpServers":  null,
+                                                                       "disabledMcpjsonServers":  [
+
+                                                                                                  ],
+                                                                       "enabledMcpjsonServers":  [
+
+                                                                                                 ]
+                                                                   },
+    "C:\\Users\\rentk\\mihir\\aladdin":  {
+                                             "mcpContextUris":  [
+
+                                                                ],
+                                             "mcpServers":  null,
+                                             "disabledMcpjsonServers":  [
+
+                                                                        ],
+                                             "enabledMcpjsonServers":  [
+
+                                                                       ]
+                                         },
+    "C:\\Users\\rentk\\mihir\\pokecity":  {
+                                              "mcpContextUris":  [
+
+                                                                 ],
+                                              "mcpServers":  null,
+                                              "disabledMcpjsonServers":  [
+
+                                                                         ],
+                                              "enabledMcpjsonServers":  [
+
+                                                                        ]
+                                          },
+    "C:/Users/rentk/inomy/inomy-mono":  {
+                                            "mcpContextUris":  [
+
+                                                               ],
+                                            "mcpServers":  {
+
+                                                           },
+                                            "disabledMcpjsonServers":  [
+
+                                                                       ],
+                                            "enabledMcpjsonServers":  [
+
+                                                                      ]
+                                        },
+    "C:/Users/rentk":  {
+                           "mcpContextUris":  [
+
+                                              ],
+                           "mcpServers":  {
+                                              "linear-server":  {
+                                                                    "type":  "sse",
+                                                                    "url":  "https://mcp.linear.app/sse"
+                                                                }
+                                          },
+                           "disabledMcpjsonServers":  [
+
+                                                      ],
+                           "enabledMcpjsonServers":  [
+
+                                                     ]
+                       },
+    "C:/Users/rentk/mihir/main":  {
+                                      "mcpContextUris":  [
+
+                                                         ],
+                                      "mcpServers":  {
+
+                                                     },
+                                      "disabledMcpjsonServers":  [
+
+                                                                 ],
+                                      "enabledMcpjsonServers":  [
+
+                                                                ]
+                                  },
+    "C:\\Users\\rentk\\mihir\\pokecity\\.claude\\worktrees\\wonderful-albattani":  {
+                                                                                       "mcpContextUris":  [
+
+                                                                                                          ],
+                                                                                       "mcpServers":  null,
+                                                                                       "disabledMcpjsonServers":  [
+
+                                                                                                                  ],
+                                                                                       "enabledMcpjsonServers":  [
+
+                                                                                                                 ]
+                                                                                   },
+    "C:/Users/rentk/inomy/working-notes":  {
+                                               "mcpContextUris":  [
+
+                                                                  ],
+                                               "mcpServers":  {
+                                                                  "linear-server":  {
+                                                                                        "type":  "sse",
+                                                                                        "url":  "https://mcp.linear.app/sse"
+                                                                                    }
+                                                              },
+                                               "disabledMcpjsonServers":  [
+
+                                                                          ],
+                                               "enabledMcpjsonServers":  [
+
+                                                                         ]
+                                           },
+    "C:/Users/rentk/inomy/es-data-pipeline":  {
+                                                  "mcpContextUris":  [
+
+                                                                     ],
+                                                  "mcpServers":  {
+
+                                                                 },
+                                                  "disabledMcpjsonServers":  [
+
+                                                                             ],
+                                                  "enabledMcpjsonServers":  [
+
+                                                                            ]
+                                              },
+    "C:/Users/rentk/inomy":  {
+                                 "mcpContextUris":  [
+
+                                                    ],
+                                 "mcpServers":  {
+                                                    "linear-server":  {
+                                                                          "type":  "sse",
+                                                                          "url":  "https://mcp.linear.app/sse"
+                                                                      }
+                                                },
+                                 "disabledMcpjsonServers":  [
+
+                                                            ],
+                                 "enabledMcpjsonServers":  [
+
+                                                           ]
+                             },
+    "C:/Users/rentk/mihir/pokecity":  {
+                                          "mcpContextUris":  [
+
+                                                             ],
+                                          "mcpServers":  {
+
+                                                         },
+                                          "disabledMcpjsonServers":  [
+
+                                                                     ],
+                                          "enabledMcpjsonServers":  [
+
+                                                                    ]
+                                      },
+    "C:/Users/rentk/mihir/all-doing-bot":  {
+                                               "mcpContextUris":  [
+
+                                                                  ],
+                                               "mcpServers":  {
+
+                                                              },
+                                               "disabledMcpjsonServers":  [
+
+                                                                          ],
+                                               "enabledMcpjsonServers":  [
+
+                                                                         ]
+                                           }
+}

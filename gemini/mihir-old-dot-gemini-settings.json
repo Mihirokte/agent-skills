@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "figma": {
+      "url": "https://mcp.figma.com/mcp",
+      "type": "http"
+    },
+    "blender": {
+      "command": "uvx",
+      "args": [
+        "--python",
+        "3.12",
+        "blender-mcp"
+      ]
+    }
+  }
+}

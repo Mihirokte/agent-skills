@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Debate Hall</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/hall.css" />
+</head>
+<body class="hall-app">
+  <div class="hall-backdrop" aria-hidden="true"></div>
+
+  <header class="app-shell-top">
+    <div class="app-brand">
+      <span class="app-logo" aria-hidden="true"></span>
+      <div>
+        <h1 class="app-name">Debate Hall</h1>
+        <p class="app-tagline">Local multi-agent review · live stream · flow graph · roadmap</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <aside class="panel panel-sidebar" aria-labelledby="sidebarHeading">
+      <h2 id="sidebarHeading" class="panel-heading">Session</h2>
+      <p class="panel-lead">Pick a folder, describe intent (optional), then start. Improvement plan and git worktrees are on by default when they apply.</p>
+
+      <label class="label" for="runPick">History</label>
+      <select id="runPick" class="control control-select">
+        <option value="">— New run —</option>
+      </select>
+
+      <form id="startForm" class="stack-form">
+        <label class="label" for="targetPath">Repository path</label>
+        <div class="path-actions">
+          <input class="control" type="text" id="targetPath" placeholder="C:\path\to\project" required />
+          <div class="path-buttons">
+            <button type="button" class="btn btn-secondary" id="btnPickFolder" title="System folder dialog">Browse</button>
+            <button type="button" class="btn btn-ghost" id="btnCancelPick" hidden disabled>Cancel</button>
+          </div>
+        </div>
+        <input type="file" id="dirInput" class="visually-hidden" webkitdirectory directory multiple />
+        <p class="hint" id="pathHint"></p>
+        <p class="git-badge" id="gitTargetBadge" aria-live="polite"></p>
+
+        <div class="plan-panel">
+          <label class="label" for="planQuery">Run intent <span class="label-optional">(optional)</span></label>
+          <p class="hint plan-hint">
+            If you fill this in, <strong>Start run</strong> first runs the guided planner (two local agents), then queues the debate with focus points and tuned settings.
+            Leave blank for a fast default run with the options below.
+          </p>
+          <textarea
+            id="planQuery"
+            class="control plan-textarea"
+            rows="3"
+            placeholder="e.g. Stress-test the auth module and API error paths before release."
+          ></textarea>
+          <p class="hint plan-status" id="planStatus" aria-live="polite"></p>
+          <p class="plan-rephrase" id="planRephrase"></p>
+          <ul class="plan-focus-list" id="planFocusList"></ul>
+          <p class="plan-rationale" id="planRationale"></p>
+        </div>
+
+        <details class="advanced-details" id="advancedDetails">
+          <summary class="advanced-summary">Advanced options</summary>
+          <div class="advanced-body">
+            <div class="grid-2">
+              <label class="label tight">Agents
+                <input class="control" type="number" id="numAgents" value="3" min="2" max="8" />
+              </label>
+              <label class="label tight">Timeout (s)
+                <input class="control" type="number" id="timeoutSec" value="300" min="30" />
+              </label>
+            </div>
+
+            <label class="label" for="debateMode">Mode</label>
+            <select id="debateMode" class="control control-select">
+              <option value="sequential">Sequential — open → challenge → resolve per finding</option>
+              <option value="legacy">Legacy — parallel vote on all findings</option>
+            </select>
+
+            <label class="label" for="maxFindings">Max findings (optional)</label>
+            <input class="control" type="number" id="maxFindings" placeholder="all" min="1" />
+
+            <p class="hint advanced-hint">Integrated by default; turn off only if you want a slimmer run.</p>
+            <label class="check-line">
+              <input type="checkbox" id="optImprovementPlan" checked />
+              <span>Improvement plan <span class="hint-inline">SWE → UX → PM → improvement-plan.md</span></span>
+            </label>
+            <label class="check-line" id="gitWorktreesLabel">
+              <input type="checkbox" id="optGitWorktrees" />
+              <span>Git worktrees <span class="hint-inline">isolated trees for agents 2+ at current HEAD</span></span>
+            </label>
+          </div>
+        </details>
+
+        <button type="submit" class="btn btn-primary" id="btnStartRun">Start run</button>
+      </form>
+    </aside>
+
+    <section class="panel panel-stage" aria-label="Live floor">
+      <div class="now-playing-card">
+        <div class="now-playing-meta">
+          <span class="eyebrow">Now</span>
+          <div class="session-title" id="sessionTitle">No session</div>
+          <div class="session-status" id="statusLine">Pick a run or start one from the sidebar.</div>
+        </div>
+      </div>
+
+      <div class="spotlight-soft" aria-hidden="true"></div>
+
+      <div class="debater-row">
+        <div class="debater-slot" data-slot="0" data-persona="swe">
+          <div class="debater-glow" aria-hidden="true"></div>
+          <img src="/static/sprites/debater.svg" alt="" class="debater-img debater-img--tint-swe pixel-sprite" />
+          <div class="debater-card">
+            <span class="debater-name">Alex</span>
+            <span class="debater-discipline">Software</span>
+            <span class="debater-state" data-state="idle">—</span>
+          </div>
+        </div>
+        <div class="debater-slot debater-slot--focus" data-slot="1" data-persona="ux">
+          <div class="debater-glow" aria-hidden="true"></div>
+          <img src="/static/sprites/debater.svg" alt="" class="debater-img debater-img--tint-ux debater-img--lg pixel-sprite" />
+          <div class="debater-card">
+            <span class="debater-name">Jordan</span>
+            <span class="debater-discipline">Design</span>
+            <span class="debater-state" data-state="idle">—</span>
+          </div>
+        </div>
+        <div class="debater-slot" data-slot="2" data-persona="pm">
+          <div class="debater-glow" aria-hidden="true"></div>
+          <img src="/static/sprites/debater.svg" alt="" class="debater-img debater-img--tint-pm pixel-sprite" />
+          <div class="debater-card">
+            <span class="debater-name">Sam</span>
+            <span class="debater-discipline">Product</span>
+            <span class="debater-state" data-state="idle">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="podium-line">
+        <img src="/static/sprites/podium.svg" alt="" class="podium-svg pixel-sprite" />
+      </div>
+    </section>
+
+    <aside class="panel panel-feed" id="recordsBay">
+      <div class="feed-head">
+        <h2 class="panel-heading">Output</h2>
+        <div class="feed-toolbar">
+          <button type="button" class="btn btn-secondary btn-compact" id="btnCopyAll">Copy stream</button>
+          <button type="button" class="btn btn-secondary btn-compact" id="btnCopyMermaid" hidden>Copy Mermaid</button>
+          <button type="button" class="btn btn-secondary btn-compact" id="btnCopyImprovement" hidden>Copy roadmap</button>
+          <span class="sync-pill" id="pollTick"></span>
+        </div>
+      </div>
+
+      <div class="feed-block">
+        <h3 class="section-label">Timeline</h3>
+        <div class="track track-flow" id="track" aria-label="Debate steps"></div>
+      </div>
+
+      <div class="feed-block feed-block--grow">
+        <h3 class="section-label">Stream</h3>
+        <p class="empty-hint" id="idleVerse">Connect to a session to follow the live stream.</p>
+        <pre class="code-block" id="streamPre" spellcheck="false"></pre>
+      </div>
+
+      <div class="feed-block" id="improvementPlanWrap" hidden>
+        <h3 class="section-label">Improvement plan</h3>
+        <p class="hint">Written after scoring when the improvement plan phase runs (<code>improvement-plan.md</code>).</p>
+        <pre class="code-block code-block--plan" id="improvementPlanPre" spellcheck="false"></pre>
+      </div>
+
+      <div class="feed-block" id="mermaidWrap" hidden>
+        <h3 class="section-label">Flow</h3>
+        <p class="hint mermaid-hint" id="mermaidLiveHint">
+          Graph updates from the server; render uses a CDN script.
+        </p>
+        <div class="mermaid-canvas" id="mermaidDiagram" aria-label="Flowchart preview"></div>
+        <h4 class="micro-label">Source</h4>
+        <pre class="code-block code-block--sm" id="mermaidPre" spellcheck="false"></pre>
+      </div>
+
+      <p class="footer-line">Data: <code>debate_hall_data/runs/</code></p>
+    </aside>
+  </main>
+
+  <script src="/static/hall.js" type="module"></script>
+</body>
+</html>

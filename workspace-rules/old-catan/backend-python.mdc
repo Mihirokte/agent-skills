@@ -1,0 +1,39 @@
+---
+description: Backend Python conventions for the Catan game engine
+globs: backend/**/*.py
+alwaysApply: false
+---
+
+# Backend Python Rules
+
+## State Management
+
+- `GameState` in `game.py` is the single source of truth. Never duplicate state.
+- All mutations go through `apply_action()` or `apply_trade()`.
+- `get_valid_actions()` must reflect the exact set of legal moves for the current state.
+- After any state mutation, call `_update_special_cards()` then `_check_win()`.
+
+## Turn Phases
+
+- `turn_phase` controls what actions are legal:
+  - `pre_roll`: only `roll_dice`
+  - `robber_discard_pending`: only `discard` (from `discard_queue[0]`)
+  - `robber_move_pending`: only `move_robber`
+  - `action_phase`: build, trade, play dev card, end turn
+
+## Board Topology
+
+- Vertices are identified by the frozenset of adjacent hex (q,r) pairs.
+- Edges connect two vertices that share exactly 2 hexes.
+- `board.edges_for_vertex()` and `board.vertex_neighbors` provide adjacency lookups.
+- Longest road DFS uses `blocked_vertices` (opponent buildings) to interrupt paths.
+
+## Resource Distribution
+
+- On non-7 roll: each hex with matching number (and no robber) produces for adjacent settlements (1) and cities (min(2, bank)).
+- Bank depletion is respected: city gets min(2, remaining).
+
+## Testing
+
+- Add tests to `tests/` as plain Python scripts with `assert` statements.
+- Test both valid and invalid action paths.

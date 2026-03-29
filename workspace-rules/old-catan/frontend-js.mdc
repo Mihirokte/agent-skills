@@ -1,0 +1,33 @@
+---
+description: Frontend JavaScript conventions for the Catan UI
+globs: frontend/**/*.js
+alwaysApply: false
+---
+
+# Frontend JS Rules
+
+## Module Pattern
+
+- Each file is an IIFE exposing a single global: `BoardRenderer`, `GameController`, `UI`.
+- `main.js` wires everything together (WebSocket, event handlers, render loop).
+- No frameworks, no build step, no npm.
+
+## Rendering
+
+- Board is pure SVG rendered into `#board-container`.
+- `BoardRenderer.renderBoard()` clears and redraws on every state update.
+- Valid placements are shown as invisible hit-area circles with class `valid-vertex` or `valid-edge`.
+- Hex clicks, vertex clicks, edge clicks are dispatched to `main.js` handlers.
+
+## State Flow
+
+- `GameController.setState(msg)` stores server state.
+- `GameController.getValidActions()` returns the server-provided legal actions.
+- All actions go through `GameController.dispatch*()` methods → WebSocket → server validates → server responds with new state.
+- Never optimistically update local state; always wait for server `game_state` response.
+
+## Dialogs
+
+- Trade, discard, and robber dialogs open/close based on server state flags.
+- Discard dialog receives `player_index` and `required` count from the server's valid action.
+- Robber victim selection: if multiple eligible, prompt user to choose.

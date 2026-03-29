@@ -1,0 +1,35 @@
+# Debate Hall + planner (machine-local; do not publish runs)
+cursor/skills/debate/debate_hall_data/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+
+# Local env / secrets
+.env
+.env.*
+*.pem
+
+# Local-only editor / Claude settings (never push)
+**/*.local.json
+
+# Ephemeral debate output next to a scanned target (not the Hall archive)
+cursor/skills/debate/.debate/
+
+# Config snapshots may contain paths, MCP tokens, or editor state — keep out of remote by default
+config-snapshots/

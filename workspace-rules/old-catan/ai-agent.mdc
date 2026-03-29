@@ -1,0 +1,38 @@
+---
+description: AI agent integration via Claude CLI
+globs: backend/ai_agent.py
+alwaysApply: false
+---
+
+# AI Agent Rules
+
+## Invocation
+
+- Claude CLI: `claude -p "<prompt>" --output-format json --no-session-persistence`
+- Called via `asyncio.create_subprocess_exec` with 60s timeout.
+- Each call returns one action as a JSON object.
+
+## Prompt Format
+
+The prompt includes:
+1. Board state (hex terrain, numbers, robber position)
+2. All players' public info (VP, buildings, knights)
+3. Current player's private info (resources, dev cards)
+4. Full list of valid actions as JSON
+
+The AI must respond with exactly one JSON object matching a valid action.
+
+## Server-Side Loop (app.py)
+
+- After a human action, if the new current player is AI, loop up to 40 steps.
+- Each step: get fresh `valid_actions`, call Claude, validate response.
+- Invalid response → fallback to `end_turn` or first valid action.
+- Failed `apply_action` → try `end_turn`, else break.
+- 0.25s delay between steps; broadcast state after each accepted action.
+
+## Response Parsing
+
+`_parse_json_from_response()` handles:
+1. Raw JSON parse
+2. Markdown code block extraction
+3. First `{...}` extraction with brace matching
