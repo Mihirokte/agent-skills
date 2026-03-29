@@ -20,6 +20,7 @@ import time
 import argparse
 import threading
 import webbrowser
+import weakref
 from pathlib import Path
 from datetime import datetime
 
@@ -30,6 +31,55 @@ NUM_AGENTS = 3
 
 _agent_paths_cache: tuple[Path | None, Path | None] | None = None
 _stream_lock = threading.Lock()
+
+# Active AgentRunner instances (weak) so the hall server can terminate cursor-agent children on shutdown.
+_agent_runners_lock = threading.Lock()
+_agent_runners: weakref.WeakSet = weakref.WeakSet()
+
+
+def _track_agent_runner(runner: "AgentRunner") -> None:
+    with _agent_runners_lock:
+        _agent_runners.add(runner)
+
+
+def _untrack_agent_runner(runner: "AgentRunner") -> None:
+    with _agent_runners_lock:
+        _agent_runners.discard(runner)
+
+
+def terminate_all_agent_processes(
+    terminate_wait: float = 6.0,
+    kill_wait: float = 4.0,
+) -> int:
+    """Terminate/kill subprocesses started by in-flight AgentRunner instances (debate + planner).
+
+    Returns how many processes received terminate/kill (still running at call time).
+    """
+    with _agent_runners_lock:
+        runners = list(_agent_runners)
+    n = 0
+    for r in runners:
+        p = getattr(r, "proc", None)
+        if p is None or p.poll() is not None:
+            continue
+        n += 1
+        try:
+            p.terminate()
+        except ProcessLookupError:
+            continue
+        deadline = time.monotonic() + terminate_wait
+        while p.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.1)
+        if p.poll() is None:
+            try:
+                p.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                p.wait(timeout=kill_wait)
+            except subprocess.TimeoutExpired:
+                pass
+    return n
 
 
 def append_stream_chunk(work_dir: Path, payload: dict):
@@ -683,6 +733,7 @@ class AgentRunner:
 
         use_stream = self.work_dir is not None
 
+        _track_agent_runner(self)
         try:
             if use_stream:
                 self._run_with_stream_pipe(cmd, env, creation_flags)
@@ -724,6 +775,8 @@ class AgentRunner:
             self.status = "failed"
             self.error = str(e)
             print(f"  [{self.name}] ERROR: {e}")
+        finally:
+            _untrack_agent_runner(self)
 
     def get_result(self):
         """Parse the output file and return extracted JSON or None."""

@@ -1,5 +1,5 @@
 const HINT =
-  "Use “Folder…” for a native picker on this PC (server reads the path). Or paste a path from Explorer.";
+  "Use Browse for the system folder dialog (server reads the path). Or paste a path from Explorer.";
 
 const MERMAID_PLACEHOLDER =
   "No graph file yet. Sequential mode writes debate_graph.mermaid after each turn finishes.";
@@ -8,8 +8,14 @@ let currentRunId = null;
 let streamLineAfter = 0;
 let snapshotTimer = null;
 let streamTimer = null;
+/**
+ * Real-time Mermaid: `GET /api/runs/<id>/mermaid` returns `{ mermaid, rev }` (32k cap, safe run dir).
+ * Poll ~300ms while a run is active; `rev` (mtime_ns + size) dedupes updates vs `lastMermaidKey`.
+ * Rendered preview uses Mermaid ESM from jsDelivr — needs network; raw source is always in `#mermaidPre`.
+ * On disk, `debate_graph.mermaid` updates after each sequential turn completes, not mid-turn.
+ */
 let mermaidTimer = null;
-/** Dedupe poll updates: server rev, or "__empty__", or length-based fallback. */
+/** Dedupe poll updates: server `rev`, or "__empty__", or blob length fallback. */
 let lastMermaidKey = null;
 
 /** Full plan from guided layer; attached to POST /api/runs as `guided` when starting. */
@@ -19,13 +25,91 @@ let lastPlanOkKey = null;
 
 let inspectTimer = null;
 
+/** Set `targetPath` once when opening a run from the roll (from meta.target). */
+let appliedMetaTargetForRun = null;
+
 let mermaidModulePromise = null;
 let mermaidRenderSeq = 0;
+
+let hallOverlayDepth = 0;
+
+function pushHallOverlay(message) {
+  hallOverlayDepth += 1;
+  const t = document.getElementById("hallLoadText");
+  const o = document.getElementById("hallLoadOverlay");
+  if (t) t.textContent = message;
+  if (o) o.hidden = false;
+  document.body.classList.add("hall-app--ui-blocked");
+}
+
+function popHallOverlay() {
+  hallOverlayDepth = Math.max(0, hallOverlayDepth - 1);
+  if (hallOverlayDepth > 0) return;
+  const o = document.getElementById("hallLoadOverlay");
+  if (o) o.hidden = true;
+  document.body.classList.remove("hall-app--ui-blocked");
+}
+
+function setRollSyncing(on) {
+  document.body.classList.toggle("hall-app--syncing-roll", on);
+  const ind = document.getElementById("rollSyncIndicator");
+  if (ind) ind.hidden = !on;
+  const sel = document.getElementById("runPick");
+  if (sel) sel.disabled = on;
+}
+
+function setButtonLoading(btn, on) {
+  if (!btn) return;
+  btn.classList.toggle("btn--loading", on);
+  btn.setAttribute("aria-busy", on ? "true" : "false");
+}
+
+function flashButtonComplete(btn) {
+  if (!btn) return;
+  btn.classList.add("btn--done");
+  setTimeout(() => btn.classList.remove("btn--done"), 1400);
+}
+
+function flashPollTick() {
+  const tick = document.getElementById("pollTick");
+  if (!tick) return;
+  tick.classList.remove("clerk-tick--pulse");
+  void tick.offsetWidth;
+  tick.classList.add("clerk-tick--pulse");
+  setTimeout(() => tick.classList.remove("clerk-tick--pulse"), 650);
+}
+
+function setStartFormBusy(busy) {
+  const form = document.getElementById("startForm");
+  const bar = document.getElementById("planLoaderBar");
+  const btn = document.getElementById("btnStartRun");
+  if (form) form.classList.toggle("hall-form--busy", busy);
+  if (bar) {
+    bar.hidden = !busy;
+    bar.setAttribute("aria-hidden", busy ? "false" : "true");
+  }
+  if (btn) setButtonLoading(btn, busy);
+}
 
 function parseHash() {
   const h = (location.hash || "").replace(/^#\/?/, "");
   const m = h.match(/^run\/(.+)$/);
-  return m ? m[1] : null;
+  if (!m) return null;
+  try {
+    return decodeURIComponent(m[1].trim());
+  } catch {
+    return m[1].trim();
+  }
+}
+
+/** Stable hash link for a run (always `#/run/<id>`). */
+function setRunHash(runId) {
+  location.hash = "#/run/" + encodeURIComponent(runId);
+}
+
+function clearRunHash() {
+  const base = `${location.pathname}${location.search}`;
+  history.replaceState(null, "", base);
 }
 
 async function fetchRuns() {
@@ -80,11 +164,13 @@ function loadMermaid() {
 async function renderMermaidDiagram(source) {
   const host = document.getElementById("mermaidDiagram");
   if (!host) return;
+  host.classList.remove("mermaid-canvas--loading");
   if (!source?.trim()) {
     host.innerHTML = "";
     return;
   }
   const my = ++mermaidRenderSeq;
+  host.classList.add("mermaid-canvas--loading");
   try {
     const mermaid = await loadMermaid();
     if (my !== mermaidRenderSeq) return;
@@ -95,19 +181,22 @@ async function renderMermaidDiagram(source) {
   } catch (e) {
     if (my !== mermaidRenderSeq) return;
     host.innerHTML = `<p class="mermaid-error">${escapeHtml(String(e.message || e))}</p>`;
+  } finally {
+    if (my === mermaidRenderSeq) host.classList.remove("mermaid-canvas--loading");
   }
 }
 
 function prepareMermaidPanelForRun() {
   const wrap = document.getElementById("mermaidWrap");
   const mp = document.getElementById("mermaidPre");
-  const bm = document.getElementById("btnCopyMermaid");
   wrap.hidden = false;
   mp.textContent = MERMAID_PLACEHOLDER;
-  bm.hidden = true;
   lastMermaidKey = null;
   const host = document.getElementById("mermaidDiagram");
-  if (host) host.innerHTML = "";
+  if (host) {
+    host.classList.remove("mermaid-canvas--loading");
+    host.innerHTML = "";
+  }
 }
 
 async function pollMermaid() {
@@ -119,20 +208,72 @@ async function pollMermaid() {
   lastMermaidKey = key;
 
   const mp = document.getElementById("mermaidPre");
-  const bm = document.getElementById("btnCopyMermaid");
   if (data.mermaid) {
     mp.textContent = data.mermaid;
-    bm.hidden = false;
     renderMermaidDiagram(data.mermaid);
   } else {
     mp.textContent = MERMAID_PLACEHOLDER;
-    bm.hidden = true;
     renderMermaidDiagram("");
   }
 }
 
 function setPathHint(text) {
   document.getElementById("pathHint").textContent = text;
+}
+
+/** Assemble every visible plan field (+ full guided JSON when present) for clipboard. */
+function buildFullPlanTextForCopy() {
+  const motion = document.getElementById("planQuery").value.trim();
+  const status = document.getElementById("planStatus").textContent.trim();
+  const reph = document.getElementById("planRephrase").textContent.trim();
+  const rat = document.getElementById("planRationale").textContent.trim();
+  const items = [
+    ...document.querySelectorAll("#planFocusList li"),
+  ].map((li) => li.textContent.trim()).filter(Boolean);
+  const blocks = [];
+  if (motion) blocks.push(`Motion\n${motion}`);
+  if (status) blocks.push(`Status\n${status}`);
+  if (reph) blocks.push(reph);
+  if (items.length)
+    blocks.push(`Focus points\n${items.map((t) => `• ${t}`).join("\n")}`);
+  if (rat) blocks.push(`Rationale\n${rat}`);
+  if (lastGuidedPlan)
+    blocks.push(
+      `Guided plan (full JSON)\n${JSON.stringify(lastGuidedPlan, null, 2)}`,
+    );
+  return (
+    blocks.join("\n\n") ||
+    "(No plan text yet — add a motion, run the planners by convening, or paste from elsewhere.)"
+  );
+}
+
+let planCopyRestoreTimer = null;
+
+async function copyFullPlanToClipboard(triggerBtn) {
+  const btn = triggerBtn || document.getElementById("btnCopyPlanFull");
+  const text = buildFullPlanTextForCopy();
+  const st = document.getElementById("planStatus");
+  if (planCopyRestoreTimer) {
+    clearTimeout(planCopyRestoreTimer);
+    planCopyRestoreTimer = null;
+  }
+  const prev = st.textContent;
+  const restore = () => {
+    planCopyRestoreTimer = null;
+    st.textContent = prev;
+  };
+  btn?.classList.add("btn-icon-copy--loading");
+  try {
+    await navigator.clipboard.writeText(text);
+    st.textContent = "Full plan copied to clipboard.";
+    planCopyRestoreTimer = setTimeout(restore, 2200);
+    flashButtonComplete(btn);
+  } catch {
+    st.textContent = "Copy failed — select plan text manually.";
+    planCopyRestoreTimer = setTimeout(restore, 2200);
+  } finally {
+    btn?.classList.remove("btn-icon-copy--loading");
+  }
 }
 
 function applyPlanToForm(plan) {
@@ -164,7 +305,7 @@ function applyPlanToForm(plan) {
   lastGuidedPlan = plan;
   const st = document.getElementById("planStatus");
   st.textContent =
-    "Plan applied — review Advanced options if needed, then Start run (or start again to refresh the plan).";
+    "Plan applied — adjust standing rules if needed, then Convene assembly (or convene again to refresh the plan).";
   const target = document.getElementById("targetPath").value.trim();
   const query = document.getElementById("planQuery").value.trim();
   lastPlanOkKey = `${target}\n${query}`;
@@ -214,15 +355,19 @@ function scheduleTargetInspect() {
     const wt = document.getElementById("optGitWorktrees");
     if (!p) {
       badge.textContent = "";
+      badge.classList.remove("git-badge--loading");
       wt.checked = false;
       wt.disabled = true;
       return;
     }
+    badge.classList.add("git-badge--loading");
+    badge.textContent = "Inspecting repository…";
     try {
       const r = await fetch(
         `/api/target-inspect?path=${encodeURIComponent(p)}`,
       );
       const j = await r.json();
+      badge.classList.remove("git-badge--loading");
       if (!j.exists) {
         badge.textContent = j.error
           ? String(j.error)
@@ -245,6 +390,7 @@ function scheduleTargetInspect() {
         wt.disabled = true;
       }
     } catch {
+      badge.classList.remove("git-badge--loading");
       badge.textContent = "";
     }
   }, 450);
@@ -361,6 +507,18 @@ function escapeHtml(s) {
 function applySnapshot(snap) {
   const st = snap.status || {};
   const meta = snap.meta || {};
+  if (
+    currentRunId &&
+    meta.target &&
+    appliedMetaTargetForRun !== currentRunId
+  ) {
+    const t = String(meta.target).trim();
+    if (t) {
+      document.getElementById("targetPath").value = t;
+      scheduleTargetInspect();
+      appliedMetaTargetForRun = currentRunId;
+    }
+  }
   const titleEl = document.getElementById("sessionTitle");
   const label = meta.label || meta.run_id || "Session";
   titleEl.textContent = label;
@@ -371,7 +529,7 @@ function applySnapshot(snap) {
     meta.status && `Archive: ${meta.status}`,
   ].filter(Boolean);
   document.getElementById("statusLine").textContent =
-    parts.join(" · ") || "Receiving testimony…";
+    parts.join(" · ") || "The floor is open — testimony arriving…";
 
   renderTrack(snap);
   mergeAgents(snap);
@@ -379,11 +537,9 @@ function applySnapshot(snap) {
 
   const mer = snap.debate_graph_mermaid;
   const mp = document.getElementById("mermaidPre");
-  const bm = document.getElementById("btnCopyMermaid");
   const wrap = document.getElementById("mermaidWrap");
   if (currentRunId) wrap.hidden = false;
   if (mer) {
-    bm.hidden = false;
     mp.textContent = mer;
     lastMermaidKey = null;
     renderMermaidDiagram(mer);
@@ -391,16 +547,13 @@ function applySnapshot(snap) {
 
   const ipWrap = document.getElementById("improvementPlanWrap");
   const ipPre = document.getElementById("improvementPlanPre");
-  const ipCopy = document.getElementById("btnCopyImprovement");
   const ipp = snap.improvement_plan_preview;
   if (ipp && String(ipp).trim() && currentRunId) {
     ipWrap.hidden = false;
     ipPre.textContent = ipp;
-    ipCopy.hidden = false;
   } else {
     ipWrap.hidden = true;
     ipPre.textContent = "";
-    ipCopy.hidden = true;
   }
 }
 
@@ -427,49 +580,61 @@ async function pollSnapshot() {
     const snap = await fetchSnapshot(currentRunId);
     applySnapshot(snap);
     const tick = document.getElementById("pollTick");
-    if (tick) tick.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+    if (tick)
+      tick.textContent = `Clerk · ${new Date().toLocaleTimeString()}`;
   } catch {
-    document.getElementById("statusLine").textContent = "Snapshot error";
+    document.getElementById("statusLine").textContent =
+      "Clerk could not read the docket for this assembly.";
   }
 }
 
 async function refreshRunSelect() {
-  const runs = await fetchRuns();
+  let list;
+  try {
+    list = await fetchRuns();
+  } catch {
+    return;
+  }
   const sel = document.getElementById("runPick");
-  const cur = sel.value;
-  sel.innerHTML = '<option value="">— New run —</option>';
-  for (const x of runs) {
+  const preferred = currentRunId || sel.value;
+  sel.innerHTML = '<option value="">— New assembly —</option>';
+  for (const x of list) {
     const id = x.run_id || x.label;
+    if (!id) continue;
     const opt = document.createElement("option");
     opt.value = id;
-    opt.textContent = `${x.label || id.slice(0, 8)} (${x.status || "?"})`;
+    const st = x.status || "?";
+    const short = id.length > 12 ? `${id.slice(0, 8)}…` : id;
+    const lbl = x.label && String(x.label) !== id ? x.label : short;
+    opt.textContent = `${lbl} · ${st}`;
     sel.appendChild(opt);
   }
-  if (cur && [...sel.options].some((o) => o.value === cur)) sel.value = cur;
+  if (preferred && [...sel.options].some((o) => o.value === preferred)) {
+    sel.value = preferred;
+  }
 }
 
 function resetStageIdle() {
-  document.getElementById("sessionTitle").textContent = "No session";
+  document.getElementById("sessionTitle").textContent = "Hall in recess";
   document.getElementById("statusLine").textContent =
-    "Pick a run from history or start one from the left.";
+    "Choose a prior assembly from the clerk’s roll, or call a new one from the sidebar.";
   document.getElementById("track").innerHTML = "";
   document.getElementById("streamPre").textContent = "";
   const wrap = document.getElementById("mermaidWrap");
   const mp = document.getElementById("mermaidPre");
-  const bm = document.getElementById("btnCopyMermaid");
   const host = document.getElementById("mermaidDiagram");
   wrap.hidden = true;
-  bm.hidden = true;
   mp.textContent = "";
-  if (host) host.innerHTML = "";
+  if (host) {
+    host.classList.remove("mermaid-canvas--loading");
+    host.innerHTML = "";
+  }
   lastMermaidKey = null;
   mermaidRenderSeq += 1;
   const ipWrap = document.getElementById("improvementPlanWrap");
   const ipPre = document.getElementById("improvementPlanPre");
-  const ipCopy = document.getElementById("btnCopyImprovement");
   if (ipWrap) ipWrap.hidden = true;
   if (ipPre) ipPre.textContent = "";
-  if (ipCopy) ipCopy.hidden = true;
   for (let s = 0; s < 3; s++) {
     const el = document.querySelector(`.debater-slot[data-slot="${s}"]`);
     if (!el) continue;
@@ -484,24 +649,48 @@ function resetStageIdle() {
 async function onRoute() {
   const id = parseHash();
   currentRunId = id;
-  await refreshRunSelect();
-  if (id) {
-    document.getElementById("runPick").value = id;
+  const openingAssembly = Boolean(id);
+  if (openingAssembly) pushHallOverlay("Opening assembly…");
+  else setRollSyncing(true);
+  try {
+    await refreshRunSelect();
+    if (!id) {
+      appliedMetaTargetForRun = null;
+      setHallLive(false);
+      stopTimers();
+      resetStageIdle();
+      return;
+    }
+    const sel = document.getElementById("runPick");
+    if (![...sel.options].some((o) => o.value === id)) {
+      document.getElementById("statusLine").textContent =
+        "That assembly id is not on the clerk’s roll (moved or removed).";
+      clearRunHash();
+      currentRunId = null;
+      appliedMetaTargetForRun = null;
+      sel.value = "";
+      setHallLive(false);
+      stopTimers();
+      resetStageIdle();
+      await refreshRunSelect();
+      return;
+    }
+    sel.value = id;
     setHallLive(true);
     document.getElementById("streamPre").textContent = "";
     streamLineAfter = 0;
     stopTimers();
     prepareMermaidPanelForRun();
-    pollSnapshot();
-    pollStream();
-    pollMermaid();
+    await pollSnapshot();
+    await pollStream();
+    await pollMermaid();
+    flashPollTick();
     snapshotTimer = setInterval(pollSnapshot, 1100);
     streamTimer = setInterval(pollStream, 450);
     mermaidTimer = setInterval(pollMermaid, 300);
-  } else {
-    setHallLive(false);
-    stopTimers();
-    resetStageIdle();
+  } finally {
+    if (openingAssembly) popHallOverlay();
+    else setRollSyncing(false);
   }
 }
 
@@ -535,6 +724,7 @@ async function nativePickFolder() {
   const btn = document.getElementById("btnPickFolder");
   const btnCancel = document.getElementById("btnCancelPick");
   btn.disabled = true;
+  setButtonLoading(btn, true);
   btnCancel.hidden = false;
   btnCancel.disabled = false;
   setPathHint("Choose a folder in the system dialog…");
@@ -590,6 +780,7 @@ async function nativePickFolder() {
       pickFolderCancelHandler = null;
     }
     btn.disabled = false;
+    setButtonLoading(btn, false);
     btnCancel.hidden = true;
     btnCancel.disabled = true;
     if (!document.getElementById("targetPath").value.trim()) setPathHint(HINT);
@@ -621,6 +812,10 @@ document.getElementById("planQuery").addEventListener("input", () => {
   lastPlanOkKey = null;
 });
 document.getElementById("btnPickFolder").addEventListener("click", nativePickFolder);
+document.getElementById("btnCopyPlanFull").addEventListener("click", (e) => {
+  const b = e.currentTarget;
+  void copyFullPlanToClipboard(b);
+});
 document.getElementById("dirInput").addEventListener("change", (e) => {
   const f = e.target.files?.[0];
   if (f && trySetPathFromFile(f)) {
@@ -638,10 +833,49 @@ document.getElementById("dirInput").addEventListener("change", (e) => {
 document.getElementById("runPick").addEventListener("change", () => {
   const v = document.getElementById("runPick").value;
   if (v) {
-    location.hash = `/run/${v}`;
-  } else {
-    location.hash = "";
-    onRoute();
+    if (parseHash() !== v) setRunHash(v);
+  } else if (parseHash()) {
+    clearRunHash();
+    void onRoute();
+  }
+});
+
+document.getElementById("btnClearRoll").addEventListener("click", async () => {
+  if (
+    !confirm(
+      "Remove every assembly from the clerk’s roll on this computer? Folders under debate_hall_data/runs/ will be deleted. This cannot be undone.",
+    )
+  ) {
+    return;
+  }
+  const btn = document.getElementById("btnClearRoll");
+  pushHallOverlay("Clearing the roll…");
+  setButtonLoading(btn, true);
+  try {
+    const r = await fetch("/api/runs", { method: "DELETE" });
+    const j = await r.json();
+    if (!r.ok) {
+      alert(j.error || "Clear roll failed");
+      return;
+    }
+    const n = (j.deleted || []).length;
+    const sk = (j.skipped_busy || []).length;
+    let msg = `Removed ${n} saved assembly folder(s).`;
+    if (sk) msg += ` ${sk} still running — stop the hall job or wait, then clear again.`;
+    if (j.errors?.length) msg += ` Some paths could not be deleted (see server log).`;
+    alert(msg);
+    clearRunHash();
+    currentRunId = null;
+    appliedMetaTargetForRun = null;
+    document.getElementById("runPick").value = "";
+    await refreshRunSelect();
+    await onRoute();
+    flashButtonComplete(btn);
+  } catch (e) {
+    alert(String(e.message || e));
+  } finally {
+    setButtonLoading(btn, false);
+    popHallOverlay();
   }
 });
 
@@ -657,6 +891,7 @@ document.getElementById("startForm").addEventListener("submit", async (ev) => {
   }
   const planKey = `${target}\n${query}`;
   btn.disabled = true;
+  setStartFormBusy(true);
   try {
     if (query) {
       if (!lastGuidedPlan || lastPlanOkKey !== planKey) {
@@ -710,40 +945,60 @@ document.getElementById("startForm").addEventListener("submit", async (ev) => {
       alert(j.error || "Failed");
       return;
     }
-    location.hash = `/run/${j.run_id}`;
+    setRunHash(j.run_id);
+    flashButtonComplete(btn);
   } finally {
     btn.disabled = false;
+    setStartFormBusy(false);
   }
 });
 
 document.getElementById("btnCopyAll").addEventListener("click", async () => {
+  const btn = document.getElementById("btnCopyAll");
   const a = document.getElementById("streamPre").textContent;
   const b = document.getElementById("mermaidPre").textContent;
   const c = document.getElementById("improvementPlanPre").textContent;
   let text = a;
   if (c?.trim()) text += `\n\n--- improvement plan ---\n${c}`;
   if (b?.trim()) text += `\n\n--- mermaid ---\n${b}`;
+  setButtonLoading(btn, true);
   try {
     await navigator.clipboard.writeText(text);
-    document.getElementById("statusLine").textContent = "Copied to clipboard.";
+    document.getElementById("statusLine").textContent =
+      "Transcript copied to the clipboard.";
+    flashButtonComplete(btn);
   } catch {
-    document.getElementById("statusLine").textContent = "Copy failed — select text manually.";
+    document.getElementById("statusLine").textContent =
+      "Copy failed — select the text by hand.";
+  } finally {
+    setButtonLoading(btn, false);
   }
 });
 
-document.getElementById("btnCopyMermaid").addEventListener("click", async () => {
-  const b = document.getElementById("mermaidPre").textContent;
+async function copyModernFieldTarget(btn) {
+  const id = btn.getAttribute("data-copy-target");
+  const el = id && document.getElementById(id);
+  if (!el) return;
+  const text =
+    "value" in el && typeof el.value === "string"
+      ? el.value
+      : (el.textContent ?? "");
   try {
-    await navigator.clipboard.writeText(b);
-  } catch (_) {}
-});
+    await navigator.clipboard.writeText(text);
+    btn.classList.add("modern-field__copy--done");
+    setTimeout(() => btn.classList.remove("modern-field__copy--done"), 1600);
+  } catch {
+    const t = btn.getAttribute("title") || "Copy";
+    btn.setAttribute("title", "Copy failed");
+    setTimeout(() => btn.setAttribute("title", t), 2000);
+  }
+}
 
-document.getElementById("btnCopyImprovement").addEventListener("click", async () => {
-  const t = document.getElementById("improvementPlanPre").textContent;
-  try {
-    await navigator.clipboard.writeText(t);
-    document.getElementById("statusLine").textContent = "Roadmap copied.";
-  } catch (_) {}
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("button.modern-field__copy[data-copy-target]");
+  if (!btn) return;
+  e.preventDefault();
+  void copyModernFieldTarget(btn);
 });
 
 window.addEventListener("hashchange", onRoute);

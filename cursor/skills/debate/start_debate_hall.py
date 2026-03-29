@@ -17,6 +17,8 @@ import argparse
 import subprocess
 import sys
 import threading
+import urllib.error
+import urllib.request
 import webbrowser
 from pathlib import Path
 
@@ -28,6 +30,23 @@ HALL_SERVER = DEBATE_DIR / "hall_server.py"
 
 DEFAULT_PORT = 8765
 DEFAULT_HOST = "127.0.0.1"
+
+
+def _request_graceful_hall_shutdown(host: str, port: int, timeout: float = 6.0) -> bool:
+    """Ask hall_server to tear down cursor-agent children then stop (loopback POST)."""
+    url = f"http://{host}:{port}/api/hall/shutdown"
+    try:
+        req = urllib.request.Request(
+            url,
+            data=b"{}",
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            code = resp.getcode()
+            return 200 <= code < 300
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError, TimeoutError):
+        return False
 
 
 def _popen_kwargs() -> dict:
@@ -190,24 +209,31 @@ class HallLauncher(tk.Tk):
         self._user_stopped = True
         self.status_var.set("Stopping…")
         self._append_log("[launcher] Stopping server…\n")
-        try:
-            self.proc.terminate()
-        except ProcessLookupError:
-            pass
-        self.after(100, self._finish_stop)
+        if _request_graceful_hall_shutdown(self._host, self._port):
+            self._append_log("[launcher] Graceful shutdown requested (agents stopped).\n")
+        else:
+            self._append_log("[launcher] Graceful shutdown HTTP failed — forcing process stop.\n")
+        self.after(50, self._finish_stop)
 
     def _finish_stop(self) -> None:
         if self.proc is None or self._exit_handled:
             return
         rc = -1
         try:
-            rc = self.proc.wait(timeout=3)
+            rc = self.proc.wait(timeout=12)
         except subprocess.TimeoutExpired:
             try:
-                self.proc.kill()
-                rc = self.proc.wait(timeout=2)
+                self.proc.terminate()
             except ProcessLookupError:
-                rc = -1
+                pass
+            try:
+                rc = self.proc.wait(timeout=4)
+            except subprocess.TimeoutExpired:
+                try:
+                    self.proc.kill()
+                    rc = self.proc.wait(timeout=2)
+                except ProcessLookupError:
+                    rc = -1
         if not self._exit_handled:
             self._on_process_exit(rc if rc is not None else -1)
 
@@ -220,12 +246,18 @@ class HallLauncher(tk.Tk):
         p = self.proc
         if p is not None and p.poll() is None:
             self._user_stopped = True
+            _request_graceful_hall_shutdown(self._host, self._port)
             try:
-                p.terminate()
-                p.wait(timeout=2)
+                p.wait(timeout=12)
             except subprocess.TimeoutExpired:
                 try:
-                    p.kill()
+                    p.terminate()
+                    p.wait(timeout=4)
+                except subprocess.TimeoutExpired:
+                    try:
+                        p.kill()
+                    except ProcessLookupError:
+                        pass
                 except ProcessLookupError:
                     pass
             except ProcessLookupError:

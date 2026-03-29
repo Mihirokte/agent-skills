@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -28,6 +30,7 @@ DEBATE_DIR = Path(__file__).resolve().parent
 DATA_DIR = DEBATE_DIR / "debate_hall_data"
 RUNS_DIR = DATA_DIR / "runs"
 HALL_WEB = DEBATE_DIR / "hall_web"
+# Same cap as ui_server.build_snapshot debate_graph_mermaid (parity with ephemeral UI).
 MERMAID_API_CAP = 32000
 
 _run_lock = threading.Lock()
@@ -39,6 +42,79 @@ _pick_procs: dict[str, subprocess.Popen] = {}
 
 _plan_lock = threading.Lock()
 _plan_states: dict[str, dict] = {}
+
+# Set in main() so handlers and signal handlers can call graceful_shutdown_hall.
+_http_server: ThreadingHTTPServer | None = None
+_shutdown_lock = threading.Lock()
+_shutdown_requested = False
+
+
+def _client_is_loopback(handler: BaseHTTPRequestHandler) -> bool:
+    host = (handler.client_address[0] or "").strip().lower()
+    if host in ("127.0.0.1", "::1", "localhost"):
+        return True
+    if host.startswith("127."):
+        return True
+    if host.startswith("::ffff:127."):
+        return True
+    return False
+
+
+def _terminate_pick_folder_procs() -> None:
+    to_kill: list[subprocess.Popen] = []
+    with _pick_lock:
+        for _tok, proc in list(_pick_procs.items()):
+            if proc is not None and proc.poll() is None:
+                to_kill.append(proc)
+    for proc in to_kill:
+        try:
+            proc.terminate()
+        except ProcessLookupError:
+            pass
+    for proc in to_kill:
+        try:
+            proc.wait(timeout=6)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+
+
+def _shutdown_hall_children() -> None:
+    """Stop cursor-agent children and native folder-picker subprocesses."""
+    if str(DEBATE_DIR) not in sys.path:
+        sys.path.insert(0, str(DEBATE_DIR))
+    try:
+        import debate as debate_mod
+
+        debate_mod.terminate_all_agent_processes()
+    except Exception:
+        pass
+    _terminate_pick_folder_procs()
+
+
+def graceful_shutdown_hall(server: ThreadingHTTPServer | None) -> None:
+    """Idempotent: kill agent/picker children, then stop the HTTP server."""
+    global _shutdown_requested
+    with _shutdown_lock:
+        if _shutdown_requested:
+            return
+        _shutdown_requested = True
+    _shutdown_hall_children()
+    if server is not None:
+        try:
+            server.shutdown()
+        except Exception:
+            pass
+
+
+def _signal_shutdown(_signum, _frame) -> None:
+    threading.Thread(
+        target=lambda: graceful_shutdown_hall(_http_server),
+        daemon=True,
+        name="hall-signal-shutdown",
+    ).start()
 
 
 def _ensure_paths():
@@ -146,6 +222,21 @@ def _list_runs() -> list[dict]:
         m["path"] = str(p)
         rows.append(m)
     return rows
+
+
+def _run_dir_safe(run_id: str) -> Path | None:
+    if not run_id or "/" in run_id or "\\" in run_id or run_id in (".", ".."):
+        return None
+    rd = (RUNS_DIR / run_id).resolve()
+    if not str(rd).startswith(str(RUNS_DIR.resolve())) or not rd.is_dir():
+        return None
+    return rd
+
+
+def _run_thread_alive(run_id: str) -> bool:
+    with _run_lock:
+        th = _active.get(run_id)
+    return th is not None and th.is_alive()
 
 
 def _read_events(run_dir: Path, limit: int = 500) -> list[dict]:
@@ -443,8 +534,8 @@ def make_handler_class():
                 if not run_id or "/" in run_id:
                     self.send_error(404)
                     return
-                rd = (RUNS_DIR / run_id).resolve()
-                if not str(rd).startswith(str(RUNS_DIR.resolve())) or not rd.is_dir():
+                rd = _run_dir_safe(run_id)
+                if rd is None:
                     self.send_error(404)
                     return
                 mf = rd / "debate_graph.mermaid"
@@ -555,7 +646,26 @@ def make_handler_class():
             self.send_error(404)
 
         def do_POST(self):
-            post_path = self.path.split("?", 1)[0]
+            post_path = self.path.split("?", 1)[0].rstrip("/")
+            if post_path == "/api/hall/shutdown":
+                if not _client_is_loopback(self):
+                    self.send_error(403)
+                    return
+                try:
+                    n = int(self.headers.get("Content-Length", "0") or "0")
+                except (TypeError, ValueError):
+                    n = 0
+                if n > 0:
+                    self.rfile.read(min(n, 65536))
+                body = json.dumps({"ok": True}, ensure_ascii=False).encode("utf-8")
+                self._send(200, body, "application/json; charset=utf-8")
+                srv = _http_server
+                threading.Thread(
+                    target=lambda: graceful_shutdown_hall(srv),
+                    daemon=True,
+                    name="hall-http-shutdown",
+                ).start()
+                return
             if post_path == "/api/plan-run/start":
                 n = int(self.headers.get("Content-Length", "0") or "0")
                 raw = self.rfile.read(n) if n else b"{}"
@@ -778,10 +888,84 @@ def make_handler_class():
             body = json.dumps({"run_id": run_id, "url": f"/#/run/{run_id}"}).encode("utf-8")
             self._send(201, body, "application/json; charset=utf-8")
 
+        def do_DELETE(self):
+            path = self.path.split("?", 1)[0].rstrip("/")
+            if path == "/api/runs":
+                _ensure_paths()
+                deleted: list[str] = []
+                skipped_busy: list[str] = []
+                errors: list[dict] = []
+                with _run_lock:
+                    busy = {rid for rid, th in _active.items() if th.is_alive()}
+                for p in list(RUNS_DIR.iterdir()):
+                    if not p.is_dir():
+                        continue
+                    rid = p.name
+                    if rid in busy:
+                        skipped_busy.append(rid)
+                        continue
+                    try:
+                        shutil.rmtree(p)
+                        deleted.append(rid)
+                        with _run_lock:
+                            _active.pop(rid, None)
+                    except OSError as e:
+                        errors.append({"run_id": rid, "error": str(e)})
+                body = json.dumps(
+                    {
+                        "deleted": deleted,
+                        "skipped_busy": skipped_busy,
+                        "errors": errors,
+                    },
+                    ensure_ascii=False,
+                ).encode("utf-8")
+                self._send(200, body, "application/json; charset=utf-8")
+                return
+
+            prefix = "/api/runs/"
+            if path.startswith(prefix):
+                rest = path[len(prefix) :].strip("/")
+                if "/" in rest or not rest:
+                    self.send_error(404)
+                    return
+                run_id = rest
+                rd = _run_dir_safe(run_id)
+                if rd is None:
+                    self._send(
+                        404,
+                        b'{"error":"run not found"}',
+                        "application/json; charset=utf-8",
+                    )
+                    return
+                if _run_thread_alive(run_id):
+                    self._send(
+                        409,
+                        json.dumps({"error": "run still active"}).encode("utf-8"),
+                        "application/json; charset=utf-8",
+                    )
+                    return
+                try:
+                    shutil.rmtree(rd)
+                    with _run_lock:
+                        _active.pop(run_id, None)
+                except OSError as e:
+                    self._send(
+                        500,
+                        json.dumps({"error": str(e)}).encode("utf-8"),
+                        "application/json; charset=utf-8",
+                    )
+                    return
+                self._send(200, b'{"ok":true}', "application/json; charset=utf-8")
+                return
+
+            self.send_error(404)
+
     return HallHandler
 
 
 def main():
+    global _http_server, _shutdown_requested
+
     parser = argparse.ArgumentParser(description="Debate Hall persistent server")
     parser.add_argument("--port", type=int, default=8765, help="Listen port (default 8765)")
     parser.add_argument("--host", default="127.0.0.1", help="Bind address (default 127.0.0.1)")
@@ -789,7 +973,9 @@ def main():
 
     _ensure_paths()
     Handler = make_handler_class()
+    _shutdown_requested = False
     server = ThreadingHTTPServer((args.host, args.port), Handler)
+    _http_server = server
     url = f"http://{args.host}:{args.port}/"
     print("=" * 60)
     print("  DEBATE HALL")
@@ -797,14 +983,25 @@ def main():
     print(f"  Open:  {url}")
     print(f"  Runs:  {RUNS_DIR}")
     print("  Queue: python debate.py <dir> --hall-url " + url.rstrip("/"))
-    print("  Stop:  Ctrl+C")
+    print("  Stop:  Ctrl+C or POST /api/hall/shutdown (loopback only)")
     print("=" * 60)
+
+    try:
+        if hasattr(signal, "SIGINT"):
+            signal.signal(signal.SIGINT, _signal_shutdown)
+        if hasattr(signal, "SIGTERM"):
+            signal.signal(signal.SIGTERM, _signal_shutdown)
+    except (ValueError, OSError):
+        pass
 
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n[Hall] Shutting down.")
-        server.shutdown()
+        graceful_shutdown_hall(server)
+    finally:
+        _http_server = None
+        print("[Hall] Stopped.")
 
 
 if __name__ == "__main__":
