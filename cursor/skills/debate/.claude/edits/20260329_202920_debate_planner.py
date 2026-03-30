@@ -34,7 +34,7 @@ def _clamp_plan(raw: dict, target: Path) -> dict:
         except (TypeError, ValueError):
             max_findings = None
 
-    git_ok = is_git_repo(target)
+    git_ok = _is_git_repo(target)
     use_wt = bool(raw.get("use_git_worktrees", False))
     if use_wt and not git_ok:
         use_wt = False
@@ -72,7 +72,7 @@ def _defaults_for_query(query: str, target: Path) -> dict:
             "sprint",
         )
     )
-    worktrees = is_git_repo(target) and any(
+    worktrees = _is_git_repo(target) and any(
         k in q for k in ("isolate", "parallel", "worktree", "concurrent", "race", "clean tree")
     )
     legacy = any(k in q for k in ("fast", "quick", "cheap", "legacy", "parallel vote"))
@@ -189,7 +189,7 @@ def run_guided_plan(
     if not isinstance(risk_hints, list):
         risk_hints = []
 
-    git_here = is_git_repo(target)
+    git_here = _is_git_repo(target)
 
     # --- Agent 2: run strategist (internal parameters) ---
     strat_prompt = (

@@ -59,9 +59,8 @@ def _popen_kwargs() -> dict:
         "text": True,
         "bufsize": 1,
     }
-    flags = subprocess_creation_flags()
-    if flags:
-        kw["creationflags"] = flags
+    if sys.platform == "win32":
+        kw["creationflags"] = subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
     return kw
 
 

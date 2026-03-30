@@ -14,6 +14,14 @@ description: >
 
 This skill is **only** maintained under **`AGENT_SKILLS_ROOT`** (e.g. `C:\Users\rentk\mihir\agent-skills`). Paths below are relative to **`%AGENT_SKILLS_ROOT%\cursor\skills\debate\`**.
 
+### Standalone installable app (recommended)
+
+The **packaged application** (editable install, console entrypoints, vendored UI reference) lives beside the hub:
+
+- **`mihir/debate-app/`** — see **`debate-app/README.md`**
+- After `pip install -e debate-app`: run **`debate-hall`**, **`debate-run`**, or **`debate-hall-gui`**
+- **UI refresh** and **ui-design-brain** vendor copy are tracked there; `hall_web/` under this skill is synced from that package for backward compatibility when running `hall_server.py` from the skill folder.
+
 | Artifact | Relative path |
 |----------|----------------|
 | This file | `SKILL.md` |
@@ -30,11 +38,30 @@ This skill is **only** maintained under **`AGENT_SKILLS_ROOT`** (e.g. `C:\Users\
 
 Apply when the user sends **`/debate <directory-path>`**. The argument is the target directory to evaluate. If no path is given, ask the user for one.
 
+## Where data lives
+
+| Mode | Artifact root |
+|------|----------------|
+| **CLI** (`debate.py` without `--hall-url`) | `<target>/.debate/` (or `--output-dir`) |
+| **Debate Hall** (queued from UI or `debate.py --hall-url`) | `<target>/.debate/runs/<run_id>/` |
+| **Hall registry** (maps `run_id` → path) | `%AGENT_SKILLS_ROOT%\cursor\skills\debate\debate_hall_data\run_registry.jsonl` |
+| **Legacy Hall runs** (older builds) | `debate_hall_data/runs/<run_id>/` — still listed if present |
+
+Add `.debate/` to the repo’s `.gitignore` if you do not want run metadata committed.
+
+**Agent workspace:** Cursor Agent is still launched with the **repository tree** as `--workspace` (or git worktrees under the run’s `git_worktrees/`), not only the `.debate` folder, so file paths in prompts stay valid.
+
+**Three debaters only:** Alex (SWE), Jordan (UX), Sam (PM). The CLI starts a **new subprocess per phase/turn**; there is no separate “extra” pool of agents—only these three roles, reused logically each step.
+
+**Sequential debate (default):** For each finding, **open → challenge → resolve** runs **strictly one after another**, and **each turn uses exactly one debater** (slot 0, 1, then 2 — never two agents on the same turn). Later turns see **full prior judgments** on that finding (stance + rationale, truncated if huge) so context compounds. The opening scan/eval phase still runs **three agents in parallel** (one per persona).
+
+**Debate wall clock (sequential mode):** Default **600 seconds (10 minutes)** from the start of sequential debate (`--debate-deadline-seconds`, Hall JSON `debate_deadline_seconds`; **0** disables). When the limit hits, **no new turns** are started (current agent may still finish). The run then **tallies partial rounds** and writes **`improvement-plan.md`** via the usual three persona passes **even if `--improvement-plan` was not set**, using a **debate-turn digest** plus findings so the plan reflects whatever was argued before the cap.
+
 ## How it works
 
 A Python orchestrator (`debate.py`) plus optional **ephemeral dashboard** (`ui_server.py` + `web/`) or **Debate Hall** (`hall_server.py` + `hall_web/`):
 
-1. **Phase 1+2 — Scan & Evaluate**: Parallel Cursor Agent CLI runs (no `--model`; CLI default/auto), producing file-level findings. **Three personas** rotate by agent index: **Alex — Software Engineer** (systems, correctness, architecture), **Jordan — UI/UX** (usability, a11y, craft), **Sam — Product** (shipping, prioritization, outcomes). Each gets role-specific **intent**, **logic nodes** (internal reasoning steps in the prompt), and evaluation lens. Stdout is **streamed** to `stream.jsonl` when a `work_dir` is set.
+1. **Phase 1+2 — Scan & Evaluate**: Up to **three** parallel Cursor Agent CLI runs (no `--model`; CLI default/auto), producing file-level findings. **Personas** by slot: **Alex — Software Engineer**, **Jordan — UI/UX**, **Sam — Product**. Each gets role-specific **intent**, **logic nodes**, and evaluation lens. Stdout is **streamed** to `stream.jsonl` when a `work_dir` is set.
 2. **Phase 3 — Aggregate**: Deduplicate findings across agents.
 3. **Phase 4 — Vote / debate** (see `--debate-mode`):
    - **`sequential` (default)**: For each finding, **open → challenge → resolve** (one agent turn each, in order). Each turn writes `debate_turns/<id>_<idx>_<role>.txt` and a row in `debate_turns.jsonl`. Updates `debate_graph.mermaid` and `debate_graph.excalidraw.json` as the run progresses.
@@ -65,9 +92,11 @@ The ephemeral dashboard closes when `debate.py` exits. For a **long-running “d
 
    The `.ps1` script uses **pythonw** and **Start-Process**, so no console window stays open. Optional: `--port 9000`, `--no-autostart`. Headless: run `hall_server.py` with `python` in an existing terminal.
 
-2. Open **http://127.0.0.1:8765/** (or use **Open in browser** in the launcher). Runs live under `debate_hall_data/runs/<uuid>/`. The hall UI includes session picker, start form (path + **Browse** native picker via `pick_folder.py` / tkinter), **git target badge** (from `GET /api/target-inspect?path=`), stream copy, **debate_track** steps, **live stream** (`GET /api/runs/<id>/stream?after=<line>`), **improvement plan preview** when `improvement-plan.md` exists (same snapshot field as the ephemeral UI), **live Mermaid** (`GET /api/runs/<id>/mermaid` + CDN render), and **Copy roadmap**. Import `debate_graph.excalidraw.json` at excalidraw.com if needed.
+2. Open **http://127.0.0.1:8765/** (or use **Open in browser** in the launcher). New runs write under **`<target>/.debate/runs/<uuid>/`**. The hall UI includes session picker, start form (path + **Browse** via `pick_folder.py` / tkinter), **git target badge** (`GET /api/target-inspect?path=`), **Stop agents** (kills cursor-agent + pickers; hall stays up), stream copy, **debate_track**, **live stream** (`GET /api/runs/<id>/stream?after=<line>`), **improvement plan** preview, **live Mermaid**, **Copy roadmap**. Import `debate_graph.excalidraw.json` at excalidraw.com if needed.
 
-   **Streamlined session form:** **Run intent** is optional. If you enter intent and click **Start run**, the hall first runs the guided planner (same as before), then queues the debate. If intent is empty, the run starts immediately with **Advanced options** only. **Improvement plan** (SWE → UX → PM → `improvement-plan.md`) defaults **on**. **Git worktrees** default **on** when the path is inside a git repo (server inspect turns the checkbox off and disables it when not a repo); override either toggle under **Advanced options**. `POST /api/runs` still accepts `guided` when a plan was produced. Planner-only API remains: `POST /api/plan-run/start` `{"query","target","timeout_per_agent"?}`, poll `GET /api/plan-run/result?token=`. Scratch: `debate_hall_data/plan_scratch/<token>/`.
+   **Session form:** Optional **Motion / intent** → if set, guided planner runs first, then the debate queues. Empty intent → run starts from **Advanced options** only. **Improvement plan** defaults **on**. **Git worktrees** default **on** in a git repo. `POST /api/runs` accepts `guided` when a plan exists. Planner: `POST /api/plan-run/start` `{"query","target","timeout_per_agent"?}`, poll `GET /api/plan-run/result?token=`. Planner scratch: `debate_hall_data/plan_scratch/<token>/`.
+
+   **Stop agents without closing the hall:** `POST /api/hall/stop-agents` (loopback only), or the **Stop agents** button. **Stop the server:** `POST /api/hall/shutdown`, Ctrl+C on `hall_server.py`, or **Stop server** in the GUI launcher. Subskill: **`debate-shutdown`** (`cursor/skills/debate-shutdown/SKILL.md`).
 
 3. Queue a debate from the browser form, or from another shell:
 
@@ -108,7 +137,7 @@ python "${AGENT_SKILLS_ROOT:-$HOME/mihir/agent-skills}/cursor/skills/debate/deba
 ### Options
 
 ```
---agents N            Parallel agent processes (default: 3, minimum 2)
+--agents N            Ignored; debater count is fixed at 3 (backward compat)
 --timeout N           Seconds per agent invocation (default: 300)
 --output-dir PATH     Where to write results (default: <target>/.debate/)
 --no-ui               Do not start dashboard or open browser
@@ -118,6 +147,7 @@ python "${AGENT_SKILLS_ROOT:-$HOME/mihir/agent-skills}/cursor/skills/debate/deba
 --max-findings-debate N   Cap findings that get sequential rounds (optional)
 --improvement-plan        After debate, SWE/UX/PM append sections to improvement-plan.md
 --git-worktrees           Use detached git worktrees for agents 2+ when inside a repo
+--debate-deadline-seconds SEC   Sequential debate wall clock (default 600; 0=off). On expiry: tally + improvement plan.
 ```
 
 ### Examples

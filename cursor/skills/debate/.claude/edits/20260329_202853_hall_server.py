@@ -669,27 +669,6 @@ def make_handler_class():
                 self._send(200, body, "application/json; charset=utf-8")
                 return
 
-            if path.startswith("/api/runs/") and path.endswith("/improvement-plan"):
-                run_id = path[len("/api/runs/") : -len("/improvement-plan")].strip("/")
-                if not run_id or "/" in run_id:
-                    self.send_error(404)
-                    return
-                rd = _run_dir_safe(run_id)
-                if rd is None:
-                    self.send_error(404)
-                    return
-                p = rd / "improvement-plan.md"
-                if not p.is_file():
-                    self.send_error(404)
-                    return
-                try:
-                    text = p.read_text(encoding="utf-8", errors="replace")
-                except OSError:
-                    self.send_error(500)
-                    return
-                self._send(200, text.encode("utf-8"), "text/plain; charset=utf-8")
-                return
-
             if path.startswith("/api/plan-run/result"):
                 parsed = urlparse(self.path)
                 qs = parse_qs(parsed.query)
@@ -950,7 +929,7 @@ def make_handler_class():
                 return
 
             num_agents = HALL_NUM_AGENTS
-            timeout = max(30, min(3600, int(data.get("timeout", 300))))
+            timeout = int(data.get("timeout", 300))
             debate_mode = str(data.get("debate_mode", "sequential")).lower()
             if debate_mode not in ("sequential", "legacy"):
                 debate_mode = "sequential"

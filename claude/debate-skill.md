@@ -32,7 +32,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:AGENT_SKILLS_ROOT\curs
 
 Hall URL when running locally: **http://127.0.0.1:8765/** (default port).
 
-**Hall UI (summary):** Path + optional **Run intent** → **Start run** (planner runs automatically when intent is set). Git repo detection via **`GET /api/target-inspect?path=`** drives worktree defaults. **Improvement plan** defaults on; both live under **Advanced options**. Output panel shows stream, **improvement-plan.md** preview when present, and live Mermaid.
+**Run folders:** `<target>/.debate/runs/<uuid>/` (plus `debate_hall_data/run_registry.jsonl`). Legacy runs may still sit under `debate_hall_data/runs/`.
+
+**Stop agents without closing the hall:** `POST http://127.0.0.1:8765/api/hall/stop-agents` with body `{}` (loopback only), or the **Stop agents** button in the UI. See **`cursor/skills/debate-shutdown/SKILL.md`**.
+
+**Hall UI (summary):** Path + optional motion/intent → **Start run** (planner when intent is set). **`GET /api/target-inspect?path=`** drives worktree defaults. **Improvement plan** defaults on. Output: stream, **improvement-plan.md** preview, live Mermaid.
 
 ## Verify hub
 

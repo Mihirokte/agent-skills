@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import threading
 
-from ._utils import safe_read_json, read_jsonl_tail, read_jsonl_tail_with_count, SendMixin
+from _utils import safe_read_json, read_jsonl_tail, read_jsonl_tail_with_count, SendMixin
 
 TAIL_BYTES = 16 * 1024
 REPORT_PREVIEW_CHARS = 32_000
@@ -50,18 +50,7 @@ def build_snapshot(work_dir: Path) -> dict:
 
     events = read_jsonl_tail(wd / "events.jsonl", 400)
     stream_line_count, stream_tail = read_jsonl_tail_with_count(wd / "stream.jsonl", 40)
-    # Full JSONL when small so Hall graph node clicks align debate_track[i] ↔ row i.
-    _dt = wd / "debate_turns.jsonl"
-    if _dt.is_file():
-        try:
-            sz = _dt.stat().st_size
-        except OSError:
-            sz = 0
-        debate_turns_preview = read_jsonl_tail(
-            _dt, 0 if sz < 4 * 1024 * 1024 else 8000
-        )
-    else:
-        debate_turns_preview = []
+    debate_turns_preview = read_jsonl_tail(wd / "debate_turns.jsonl", 30)
 
     debate_graph_mermaid = None
     mg = wd / "debate_graph.mermaid"
@@ -103,11 +92,19 @@ def _make_handler(work_dir: Path, web_root: Path) -> type[BaseHTTPRequestHandler
     wd = work_dir.resolve()
     root = web_root.resolve()
 
-    class DebateUIHandler(SendMixin, BaseHTTPRequestHandler):
+    class DebateUIHandler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
         def log_message(self, format, *args):
             pass
+
+        def _send(self, code: int, body: bytes, content_type: str):
+            self.send_response(code)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
 
         def do_GET(self):
             path = self.path.split("?", 1)[0]

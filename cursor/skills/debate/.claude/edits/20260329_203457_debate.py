@@ -25,8 +25,8 @@ import weakref
 from pathlib import Path
 from datetime import datetime
 
-from .ui_server import start_ui_server
-from ._utils import (
+from ui_server import start_ui_server
+from _utils import (
     find_git_root,
     subprocess_creation_flags,
     safe_read_json,
@@ -1517,10 +1517,10 @@ def phase_sequential_findings_debate(
     target: str,
     max_findings: int | None = None,
     debate_deadline_monotonic: float | None = None,
-) -> tuple[dict[str, list[dict]], list[dict], bool, list[dict]]:
+) -> tuple[dict[str, list[dict]], list[dict], bool]:
     """
     For each finding, run open -> challenge -> resolve sequentially (one agent each).
-    Returns (vote_rows_by_finding_id, graph_steps, deadline_was_hit, debate_track for UI).
+    Returns (vote_rows_by_finding_id, debate_track_steps for viz, deadline_was_hit).
     """
     print("\n=== PHASE 4 (sequential): Debate each finding ===")
     turns_dir = work_dir / "debate_turns"
@@ -1613,7 +1613,7 @@ def phase_sequential_findings_debate(
         },
     )
 
-    return vote_rows_by_fid, graph_steps, deadline_hit, debate_track
+    return vote_rows_by_fid, graph_steps, deadline_hit
 
 
 def phase_tally(
@@ -2047,24 +2047,21 @@ def execute_debate(
     sequential_vote_map: dict[str, list[dict]] | None = None
     vote_agents: list[AgentRunner] = []
     debate_deadline_hit = False
-    debate_track_final: list[dict] = []
 
     if debate_mode == "sequential":
         dl_mono: float | None = None
         if debate_deadline_seconds is not None and debate_deadline_seconds > 0:
             dl_mono = time.monotonic() + float(debate_deadline_seconds)
-        sequential_vote_map, _, debate_deadline_hit, debate_track_final = (
-            phase_sequential_findings_debate(
-                num_agents,
-                workspaces,
-                findings,
-                work_dir,
-                timeout,
-                status_file,
-                str(target),
-                max_findings_debate,
-                debate_deadline_monotonic=dl_mono,
-            )
+        sequential_vote_map, _, debate_deadline_hit = phase_sequential_findings_debate(
+            num_agents,
+            workspaces,
+            findings,
+            work_dir,
+            timeout,
+            status_file,
+            str(target),
+            max_findings_debate,
+            debate_deadline_monotonic=dl_mono,
         )
     else:
         vote_agents = phase_vote(
@@ -2080,7 +2077,7 @@ def execute_debate(
     )
     append_tally_event(work_dir, score, rating, findings)
 
-    tally_status: dict = {
+    write_status(status_file, {
         "phase": "tally_done",
         "target": str(target),
         "num_agents": num_agents,
@@ -2090,11 +2087,7 @@ def execute_debate(
         "findings_count": len(findings),
         "eval_agents": [a.to_dict() for a in eval_agents],
         "vote_agents": [a.to_dict() for a in vote_agents],
-    }
-    if debate_track_final:
-        tally_status["debate_track"] = debate_track_final
-        tally_status["agents"] = debate_status_agents_triplet(None, "idle")
-    write_status(status_file, tally_status)
+    })
 
     report = generate_report(
         scan,
@@ -2157,7 +2150,7 @@ def execute_debate(
             encoding="utf-8",
         )
 
-    complete_status: dict = {
+    write_status(status_file, {
         "phase": "complete",
         "target": str(target),
         "num_agents": num_agents,
@@ -2167,11 +2160,7 @@ def execute_debate(
         "findings_deduped": len(findings),
         "eval_agents": [a.to_dict() for a in eval_agents],
         "vote_agents": [a.to_dict() for a in vote_agents],
-    }
-    if debate_track_final:
-        complete_status["debate_track"] = debate_track_final
-        complete_status["agents"] = debate_status_agents_triplet(None, "idle")
-    write_status(status_file, complete_status)
+    })
 
     append_event(work_dir, {
         "kind": "stage_output",
@@ -2300,7 +2289,7 @@ def main():
             sys.exit(0)
         except urllib.error.URLError as e:
             print(f"ERROR: Could not reach Debate Hall at {args.hall_url}: {e}")
-            print("Start the hall: debate-hall   (or: python -m debate_hall)")
+            print("Start the hall: python hall_server.py")
             sys.exit(1)
 
     work_dir = Path(args.output_dir) if args.output_dir else target / ".debate"

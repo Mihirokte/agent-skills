@@ -52,11 +52,12 @@ Copy: `cursor/rules/excalidraw-explain.mdc`, `cursor/rules/agent-skills-root.mdc
 | `aws` | AWS CLI via `ai-agent-admin` profile; EC2-focused |
 | `prism-status` | Call `prism_status` MCP tool and format PRISM GTR report |
 | `swarm` | User says **`/swarm`** → split work across **n ≥ 2** parallel `Task` subagents; scale **n** up with complexity |
-| `debate` | **`/debate <dir>`** → parallel eval, aggregate, **sequential per-finding debate** (default) or legacy vote; **stream.jsonl**, **guided planner** (`debate_planner.py`), **Debate Hall** (`hall_server.py`, static UI `hall_web/`, APIs `/stream`, `/mermaid`, `/target-inspect`, `/plan-run/*`), launcher `Start-DebateHall.ps1` / `start_debate_hall.py`. Ephemeral UI: `web/`. **`--hall-url` / `DEBATE_HALL_URL`**. **Claude Code:** install hub [`claude/debate-skill.md`](./claude/debate-skill.md) → `~/.claude/rules/debate-skill.md` via `scripts/Install-AgentSkillsEnv.ps1`. |
+| `debate` | **`/debate <dir>`** → parallel eval, aggregate, **sequential per-finding debate** (default) or legacy vote; **three fixed debaters**; **stream.jsonl**; **guided planner** (`debate_planner.py`); **Debate Hall** (`hall_server.py`, UI `hall_web/`, run dirs under **`<target>/.debate/runs/`**, registry `debate_hall_data/run_registry.jsonl`, legacy `debate_hall_data/runs/`); APIs `/stream`, `/mermaid`, `/target-inspect`, `/plan-run/*`, **`/api/hall/stop-agents`**, `/api/hall/shutdown`. Ephemeral UI: `web/`. **`--hall-url` / `DEBATE_HALL_URL`**. **Claude Code:** [`claude/debate-skill.md`](./claude/debate-skill.md). |
+| `debate-shutdown` | **`/debate-shutdown`** or “stop debate agents” → **`POST /api/hall/stop-agents`** (loopback); hall UI **Stop agents**; does not stop the HTTP server. See `cursor/skills/debate-shutdown/SKILL.md`. |
 
 **Canonical path:** `%AGENT_SKILLS_ROOT%\cursor\skills\<name>\SKILL.md` (same files as `C:\Users\rentk\mihir\agent-skills\cursor\skills\...`).  
 **Junction:** `%USERPROFILE%\.cursor\skills` → `%AGENT_SKILLS_ROOT%\cursor\skills` (Cursor loads via the junction).  
-**Copies in hub:** `cursor/skills/aws/SKILL.md`, `cursor/skills/prism-status/SKILL.md`, `cursor/skills/swarm/SKILL.md`.
+**Copies in hub:** `cursor/skills/aws/SKILL.md`, `cursor/skills/prism-status/SKILL.md`, `cursor/skills/swarm/SKILL.md`, `cursor/skills/debate/SKILL.md`, `cursor/skills/debate-shutdown/SKILL.md`.
 
 ### 1.4 Cursor managed / built-in skills (Cursor-managed manifest)
 

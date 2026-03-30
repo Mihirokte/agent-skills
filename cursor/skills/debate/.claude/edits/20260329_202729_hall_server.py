@@ -222,7 +222,7 @@ def inspect_target_path(tpath: Path) -> dict:
     if not tpath.is_dir():
         out["error"] = "not a directory"
         return out
-    root = find_git_root(tpath)
+    root = _find_git_root(tpath)
     if root is None:
         return out
     out["is_git"] = True
@@ -275,8 +275,13 @@ def _plan_worker(token: str, query: str, target_str: str, timeout_each: int) -> 
 
 
 def _load_meta(run_dir: Path) -> dict:
-    default = {"run_id": run_dir.name, "label": run_dir.name, "status": "unknown"}
-    return safe_read_json(run_dir / "meta.json", default) or default
+    mf = run_dir / "meta.json"
+    if mf.is_file():
+        try:
+            return json.loads(mf.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+    return {"run_id": run_dir.name, "label": run_dir.name, "status": "unknown"}
 
 
 def _list_runs() -> list[dict]:
@@ -363,7 +368,23 @@ def _run_thread_alive(run_id: str) -> bool:
 
 
 def _read_events(run_dir: Path, limit: int = 500) -> list[dict]:
-    return read_jsonl_tail(run_dir / "events.jsonl", limit)
+    ev = run_dir / "events.jsonl"
+    if not ev.is_file():
+        return []
+    try:
+        lines = ev.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    out = []
+    for line in lines[-limit:]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return out
 
 
 def _run_job(
@@ -387,7 +408,7 @@ def _run_job(
     meta = _load_meta(run_dir)
     meta["status"] = "running"
     meta["updated_at"] = datetime.now().isoformat()
-    safe_write_json(run_dir / "meta.json", meta)
+    (run_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     try:
         dl = debate_deadline_seconds
@@ -413,7 +434,7 @@ def _run_job(
     finally:
         meta["ended_at"] = datetime.now().isoformat()
         meta["updated_at"] = meta["ended_at"]
-        safe_write_json(run_dir / "meta.json", meta)
+        (run_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     with _run_lock:
         _active.pop(run_id, None)
@@ -511,7 +532,7 @@ def _picker_worker(token: str) -> None:
 
 
 def make_handler_class():
-    class HallHandler(SendMixin, BaseHTTPRequestHandler):
+    class HallHandler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
         def log_message(self, fmt, *args):
@@ -527,6 +548,14 @@ def make_handler_class():
                 if getattr(e, "winerror", None) == 10054:
                     return
                 raise
+
+        def _send(self, code: int, body: bytes, ctype: str):
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
 
         def do_GET(self):
             path = self.path.split("?", 1)[0]
@@ -667,27 +696,6 @@ def make_handler_class():
                         ensure_ascii=False,
                     ).encode("utf-8")
                 self._send(200, body, "application/json; charset=utf-8")
-                return
-
-            if path.startswith("/api/runs/") and path.endswith("/improvement-plan"):
-                run_id = path[len("/api/runs/") : -len("/improvement-plan")].strip("/")
-                if not run_id or "/" in run_id:
-                    self.send_error(404)
-                    return
-                rd = _run_dir_safe(run_id)
-                if rd is None:
-                    self.send_error(404)
-                    return
-                p = rd / "improvement-plan.md"
-                if not p.is_file():
-                    self.send_error(404)
-                    return
-                try:
-                    text = p.read_text(encoding="utf-8", errors="replace")
-                except OSError:
-                    self.send_error(500)
-                    return
-                self._send(200, text.encode("utf-8"), "text/plain; charset=utf-8")
                 return
 
             if path.startswith("/api/plan-run/result"):
@@ -950,7 +958,7 @@ def make_handler_class():
                 return
 
             num_agents = HALL_NUM_AGENTS
-            timeout = max(30, min(3600, int(data.get("timeout", 300))))
+            timeout = int(data.get("timeout", 300))
             debate_mode = str(data.get("debate_mode", "sequential")).lower()
             if debate_mode not in ("sequential", "legacy"):
                 debate_mode = "sequential"
@@ -1030,7 +1038,10 @@ def make_handler_class():
                     json.dumps(guided, indent=2, ensure_ascii=False),
                     encoding="utf-8",
                 )
-            safe_write_json(run_dir / "meta.json", meta)
+            (run_dir / "meta.json").write_text(
+                json.dumps(meta, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
 
             th = threading.Thread(
                 target=_run_job,

@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Town Hall · Debate</title>
+  <title>Debate Hall</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/hall.css" />
 </head>
 <body class="hall-app town-hall">
@@ -18,270 +18,184 @@
   </div>
 
   <div class="hall-layout-shell">
-  <div class="hall-backdrop" aria-hidden="true"></div>
-  <div class="hall-layout">
-  <header class="hall-banner app-shell-top">
-    <div class="app-brand">
-      <img src="/static/sprites/crest.svg" alt="" class="hall-crest" width="48" height="48" />
-      <div>
-        <h1 class="app-name">Town Hall</h1>
-        <p class="app-tagline">Three voices, one assembly — review, debate, and record</p>
+    <div class="hall-layout">
+      <!-- Home (plan-hand slide 1: Town Hall + Dir chose + recent history) -->
+      <div id="slide1" class="hall-slide th-slide th-slide--home">
+        <header class="th-home-header">
+          <h1 class="th-home-title">Town Hall</h1>
+        </header>
+        <main class="th-main th-main--home">
+          <form id="startForm" class="th-home-card">
+            <div id="planLoaderBar" class="th-plan-loader" hidden aria-hidden="true"></div>
+
+            <section class="th-home-block th-home-block--dir" aria-labelledby="label-dir-chose">
+              <h2 id="label-dir-chose" class="th-home-block__title">Dir chose</h2>
+              <div class="th-field-row th-field-row--dir">
+                <input class="control th-input th-input--stretch" type="text" id="targetPath" placeholder="C:\path\to\repo" required autocomplete="off" />
+                <button type="button" class="icon-btn icon-btn--border" id="btnPickFolder" title="Browse folder" aria-label="Browse folder">
+                  <svg class="icon-btn__svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                </button>
+                <input type="file" id="dirInput" class="visually-hidden" webkitdirectory directory multiple />
+              </div>
+              <p class="th-hint git-badge th-home-git" id="gitTargetBadge" aria-live="polite"></p>
+
+              <details class="th-details">
+                <summary class="th-details__summary">Optional intent &amp; planner</summary>
+                <label class="th-label th-label--mt" for="planQuery">Motion / focus</label>
+                <textarea id="planQuery" class="control th-textarea" rows="2" placeholder="What should the debate optimize for? Leave empty to start with defaults only."></textarea>
+              </details>
+
+              <button type="submit" class="btn btn-primary th-submit" id="btnStartRun">Dir chose (Proceed)</button>
+            </section>
+
+            <section class="th-home-block th-home-block--history" aria-labelledby="label-recent-history">
+              <h2 id="label-recent-history" class="th-home-block__title th-home-block__title--muted">recent history</h2>
+              <div class="th-field-row th-field-row--tight">
+                <select id="runPick" class="control control-select th-select">
+                  <option value="">— New assembly —</option>
+                </select>
+                <button type="button" class="icon-btn icon-btn--border" id="btnClearRoll" title="Clear list" aria-label="Clear session list">
+                  <svg class="icon-btn__svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+                <span id="rollSyncIndicator" class="th-sync" hidden aria-hidden="true"></span>
+                <span id="pollTick" class="visually-hidden" aria-hidden="true"></span>
+              </div>
+            </section>
+
+            <div class="suppressed" hidden>
+              <input type="number" id="timeoutSec" value="300" min="30" />
+              <select id="debateMode"><option value="sequential">seq</option></select>
+              <input type="number" id="maxFindings" min="1" />
+              <input type="checkbox" id="optImprovementPlan" checked />
+              <input type="checkbox" id="optGitWorktrees" />
+              <p id="planStatus"></p>
+              <p id="planRephrase"></p>
+              <ul id="planFocusList"></ul>
+              <p id="planRationale"></p>
+              <button type="button" id="btnCancelPick"></button>
+              <button type="button" id="btnCopyPlanFull"></button>
+              <button type="button" id="btnCopyAll"></button>
+              <button type="button" id="btnOpenTranscript"></button>
+              <button type="button" id="btnOpenMermaidSource"></button>
+              <button type="button" id="btnOpenPlanDetails"></button>
+            </div>
+          </form>
+        </main>
+      </div>
+
+      <!-- Session -->
+      <div id="slide2" class="hall-slide th-slide" hidden>
+        <header class="th-topbar th-topbar--session">
+          <button type="button" class="icon-btn" id="btnChooseDirNav" title="Home" aria-label="Back to Town Hall">
+            <svg class="icon-btn__svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          </button>
+          <div class="th-topbar__center">
+            <span class="th-session-title">Town Hall</span>
+            <span class="th-session-sub">Session</span>
+          </div>
+          <div class="th-topbar__actions">
+            <button type="button" class="icon-btn icon-btn--border" id="btnOpenImprovement" title="Implementation plan" aria-label="Open implementation plan">
+              <svg class="icon-btn__svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+            </button>
+            <button type="button" class="icon-btn icon-btn--border icon-btn--danger" id="btnStopAgents" title="Stop" aria-label="Stop agents">
+              <svg class="icon-btn__svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <div class="slide2-body th-session-body">
+          <div class="slide2-main-column th-session-main">
+            <section class="th-agents" aria-label="Choose dir">
+              <h2 class="th-section-title">Choose dir</h2>
+              <p class="th-section-sub">Agent 3 of em</p>
+              <div class="agent-glyphs th-agent-grid">
+                <div class="debater-slot th-debater" data-slot="0">
+                  <img src="/static/sprites/debater.svg" class="agent-icon" alt="" />
+                  <span class="debater-state th-debater-state"></span>
+                </div>
+                <div class="debater-slot th-debater" data-slot="1">
+                  <img src="/static/sprites/debater.svg" class="agent-icon" alt="" />
+                  <span class="debater-state th-debater-state"></span>
+                </div>
+                <div class="debater-slot th-debater" data-slot="2">
+                  <img src="/static/sprites/debater.svg" class="agent-icon" alt="" />
+                  <span class="debater-state th-debater-state"></span>
+                </div>
+              </div>
+            </section>
+          </div>
+          <aside class="slide2-graph-column th-graph panel" aria-label="Debate graph">
+            <h2 class="th-section-title th-graph__title">Flow</h2>
+            <div class="debate-net-wrap" id="debateNetWrap">
+              <div id="debateNet" class="debate-net" aria-label="Debate flow network"></div>
+            </div>
+            <div id="mermaidWrap" hidden></div>
+            <pre class="hall-offscreen-pre" id="mermaidPre" aria-hidden="true" spellcheck="false"></pre>
+          </aside>
+        </div>
+
+        <footer class="th-footer panel th-footer--strip">
+          <div class="th-footer__col">
+            <span class="th-footer__label">Details</span>
+            <div class="th-footer__value th-footer__status" id="statusLine">The floor is open…</div>
+          </div>
+          <div class="th-footer__col th-footer__col--grow">
+            <span class="th-footer__label">Latest chat</span>
+            <div class="th-footer__value" id="slide2LatestChat">
+              <span id="hallNowText">—</span>
+              <div id="hallNowBar" class="hall-now-bar" hidden></div>
+            </div>
+          </div>
+          <div class="th-footer__col th-footer__col--opt">
+            <span class="th-footer__label">option</span>
+            <button type="button" class="icon-btn icon-btn--border" id="btnOptionToggle" title="option" aria-label="Input argument in debate">
+              <svg class="icon-btn__svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            </button>
+          </div>
+        </footer>
+
+        <div id="optionComposer" class="option-composer panel" hidden>
+          <textarea id="optionInput" class="control th-textarea" placeholder="Message to the floor…"></textarea>
+          <div class="option-actions">
+            <button type="button" id="btnSendOption" class="btn btn-primary btn-compact">Send</button>
+            <button type="button" id="btnCancelOption" class="btn btn-ghost btn-compact">Cancel</button>
+          </div>
+        </div>
+
+        <div class="suppressed" hidden>
+          <aside id="recordsBay"></aside>
+          <pre id="streamPre"></pre>
+          <span id="streamSummary"></span>
+          <div id="track"></div>
+          <p id="pathHint"></p>
+          <div id="improvementPlanWrap"></div>
+          <pre id="improvementPlanPre"></pre>
+          <span id="sessionTitle"></span>
+          <div id="slide2Details"></div>
+          <div id="hiddenAgentStates">
+            <span class="debater-state" data-slot="0"></span>
+            <span class="debater-state" data-slot="1"></span>
+            <span class="debater-state" data-slot="2"></span>
+          </div>
+        </div>
       </div>
     </div>
-  </header>
-
-  <main class="app-shell hall-chambers">
-    <div class="hall-upper">
-      <section class="panel hall-bay hall-floor" aria-label="The floor">
-        <div class="hall-proceeding">
-          <div class="hall-proceeding-inner">
-            <span class="hall-proceeding-eyebrow">Proceeding</span>
-            <div class="session-title" id="sessionTitle">Hall in recess</div>
-            <div class="session-status" id="statusLine">Choose a prior assembly from the roll, or convene a new one.</div>
-          </div>
-        </div>
-
-        <div class="hall-lantern-glow" aria-hidden="true"></div>
-
-        <div class="debater-row">
-          <div class="debater-slot" data-slot="0" data-persona="swe">
-            <div class="debater-glow" aria-hidden="true"></div>
-            <img src="/static/sprites/debater.svg" alt="" class="debater-img debater-img--tint-swe pixel-sprite" />
-            <div class="debater-card">
-              <span class="debater-name">Alex</span>
-              <span class="debater-discipline">Engineering</span>
-              <span class="debater-state" data-state="idle">—</span>
-            </div>
-          </div>
-          <div class="debater-slot debater-slot--focus" data-slot="1" data-persona="ux">
-            <div class="debater-glow" aria-hidden="true"></div>
-            <img src="/static/sprites/debater.svg" alt="" class="debater-img debater-img--tint-ux debater-img--lg pixel-sprite" />
-            <div class="debater-card">
-              <span class="debater-name">Jordan</span>
-              <span class="debater-discipline">Design</span>
-              <span class="debater-state" data-state="idle">—</span>
-            </div>
-          </div>
-          <div class="debater-slot" data-slot="2" data-persona="pm">
-            <div class="debater-glow" aria-hidden="true"></div>
-            <img src="/static/sprites/debater.svg" alt="" class="debater-img debater-img--tint-pm pixel-sprite" />
-            <div class="debater-card">
-              <span class="debater-name">Sam</span>
-              <span class="debater-discipline">Product</span>
-              <span class="debater-state" data-state="idle">—</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="podium-line">
-          <img src="/static/sprites/podium.svg" alt="" class="podium-svg pixel-sprite" />
-        </div>
-      </section>
-
-      <aside class="panel hall-bay hall-record" id="recordsBay">
-        <div class="feed-head">
-          <h2 class="panel-heading">Clerk’s record</h2>
-          <div class="feed-toolbar">
-            <button type="button" class="btn btn-secondary btn-compact" id="btnCopyAll">
-              <span class="btn__progress btn__progress--inline" aria-hidden="true"></span>
-              <span class="btn__label">Copy all (bundle)</span>
-            </button>
-            <span class="clerk-tick" id="pollTick"></span>
-          </div>
-        </div>
-
-        <div class="hall-record-scroll">
-        <div class="feed-block">
-          <h3 class="section-label">Order of business</h3>
-          <div class="track track-flow" id="track" aria-label="Debate steps"></div>
-        </div>
-
-        <div class="feed-block feed-block--grow">
-          <p class="empty-hint" id="idleVerse">When an assembly is called to order, the live testimony appears here.</p>
-          <div class="modern-field modern-field--code">
-            <div class="modern-field__head">
-              <span class="modern-field__title">Floor transcript</span>
-              <button type="button" class="modern-field__copy" data-copy-target="streamPre" title="Copy transcript" aria-label="Copy floor transcript">
-                <svg class="modern-field__copy-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-              </button>
-            </div>
-            <pre class="modern-field__pre hall-ledger" id="streamPre" spellcheck="false"></pre>
-          </div>
-        </div>
-
-        <div class="feed-block" id="improvementPlanWrap" hidden>
-          <p class="hint">Filed after scoring when the improvement phase sits (<code>improvement-plan.md</code>).</p>
-          <div class="modern-field modern-field--code">
-            <div class="modern-field__head">
-              <span class="modern-field__title">Improvement plan</span>
-              <button type="button" class="modern-field__copy" data-copy-target="improvementPlanPre" title="Copy improvement plan" aria-label="Copy improvement plan">
-                <svg class="modern-field__copy-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-              </button>
-            </div>
-            <pre class="modern-field__pre modern-field__pre--tall" id="improvementPlanPre" spellcheck="false"></pre>
-          </div>
-        </div>
-
-        <div class="feed-block" id="mermaidWrap" hidden>
-          <h3 class="section-label">Flow of debate</h3>
-          <p class="hint mermaid-hint" id="mermaidLiveHint">
-            The diagram follows the assembly; rendering uses a small script from the network.
-          </p>
-          <div class="mermaid-canvas" id="mermaidDiagram" aria-label="Flowchart preview"></div>
-          <div class="modern-field modern-field--code modern-field--tight-top">
-            <div class="modern-field__head">
-              <span class="modern-field__title">Mermaid source</span>
-              <button type="button" class="modern-field__copy" data-copy-target="mermaidPre" title="Copy Mermaid source" aria-label="Copy Mermaid source">
-                <svg class="modern-field__copy-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-              </button>
-            </div>
-            <pre class="modern-field__pre modern-field__pre--short" id="mermaidPre" spellcheck="false"></pre>
-          </div>
-        </div>
-
-        <p class="footer-line">Records kept under <code>debate_hall_data/runs/</code></p>
-        </div>
-      </aside>
-    </div>
-
-    <div class="panel hall-bay hall-plinth" aria-labelledby="plinthHeading">
-      <form id="startForm" class="hall-plinth-form">
-        <div class="hall-plinth-grid">
-          <div class="hall-clerk" aria-labelledby="sidebarHeading">
-            <h2 id="sidebarHeading" class="panel-heading">Clerk’s desk</h2>
-            <p class="panel-lead">Roll, repository path, standing rules, then convene. Motion and planner output sit beside you.</p>
-
-            <label class="label" for="runPick">Roll of assemblies</label>
-            <div class="roll-toolbar" id="rollToolbar">
-              <span class="roll-sync-indicator" id="rollSyncIndicator" hidden aria-hidden="true">
-                <span class="hall-spinner hall-spinner--tiny"></span>
-              </span>
-              <select id="runPick" class="control control-select hall-select roll-select" title="Prior debates on this machine">
-                <option value="">— New assembly —</option>
-              </select>
-              <button type="button" class="btn btn-ghost btn-compact" id="btnClearRoll" title="Delete all saved assemblies on this PC">
-                <span class="btn__progress btn__progress--inline" aria-hidden="true"></span>
-                <span class="btn__label">Clear roll</span>
-              </button>
-            </div>
-
-            <label class="label" for="targetPath">Repository path</label>
-            <div class="path-actions">
-              <input class="control" type="text" id="targetPath" placeholder="C:\path\to\project" required />
-              <div class="path-buttons">
-                <button type="button" class="btn btn-secondary" id="btnPickFolder" title="System folder dialog">
-                  <span class="btn__progress btn__progress--inline" aria-hidden="true"></span>
-                  <span class="btn__label">Browse</span>
-                </button>
-                <button type="button" class="btn btn-ghost" id="btnCancelPick" hidden disabled>Cancel</button>
-              </div>
-            </div>
-            <input type="file" id="dirInput" class="visually-hidden" webkitdirectory directory multiple />
-            <p class="hint" id="pathHint"></p>
-            <p class="git-badge" id="gitTargetBadge" aria-live="polite"></p>
-
-            <details class="advanced-details" id="advancedDetails">
-              <summary class="advanced-summary">Standing rules (advanced)</summary>
-              <div class="advanced-body">
-                <div class="grid-2">
-                  <label class="label tight">Speakers
-                    <input class="control" type="number" id="numAgents" value="3" min="2" max="8" />
-                  </label>
-                  <label class="label tight">Time limit (s)
-                    <input class="control" type="number" id="timeoutSec" value="300" min="30" />
-                  </label>
-                </div>
-
-                <label class="label" for="debateMode">Order of debate</label>
-                <select id="debateMode" class="control control-select">
-                  <option value="sequential">By finding — open, challenge, resolve in turn</option>
-                  <option value="legacy">Legacy — all speak on all findings at once</option>
-                </select>
-
-                <label class="label" for="maxFindings">Cap findings (optional)</label>
-                <input class="control" type="number" id="maxFindings" placeholder="no cap" min="1" />
-
-                <p class="hint advanced-hint">Improvement plan and git worktrees are assumed unless you uncheck them here.</p>
-                <label class="check-line">
-                  <input type="checkbox" id="optImprovementPlan" checked />
-                  <span>Improvement plan <span class="hint-inline">SWE → UX → PM → improvement-plan.md</span></span>
-                </label>
-                <label class="check-line" id="gitWorktreesLabel">
-                  <input type="checkbox" id="optGitWorktrees" />
-                  <span>Git worktrees <span class="hint-inline">separate trees for speakers 2+ at current HEAD</span></span>
-                </label>
-              </div>
-            </details>
-
-            <button type="submit" class="btn btn-primary hall-gavel" id="btnStartRun">
-              <span class="btn__progress" aria-hidden="true"></span>
-              <span class="btn__label">Convene assembly</span>
-            </button>
-          </div>
-
-          <div class="hall-plans" id="plansPanel" aria-labelledby="plinthHeading">
-            <div class="plan-loader-bar" id="planLoaderBar" hidden aria-hidden="true">
-              <span class="plan-loader-bar__fill"></span>
-            </div>
-            <div class="plan-panel-head">
-              <h2 id="plinthHeading" class="panel-heading plan-panel-title">Motion &amp; guided plan</h2>
-              <button
-                type="button"
-                class="btn-icon-copy"
-                id="btnCopyPlanFull"
-                title="Copy all plan text"
-                aria-label="Copy all plan text to clipboard"
-              >
-                <svg class="btn-icon-copy__svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-              </button>
-            </div>
-            <p class="panel-lead plan-panel-lead">
-              If you enter a motion, <strong>Convene assembly</strong> runs the guided planners first, then opens the debate.
-              Leave blank to convene at once with the clerk’s defaults.
-            </p>
-
-            <div class="modern-field modern-field--textarea">
-              <div class="modern-field__head">
-                <label class="modern-field__label" for="planQuery">Motion <span class="label-optional">(optional)</span></label>
-                <button type="button" class="modern-field__copy" data-copy-target="planQuery" title="Copy motion" aria-label="Copy motion text">
-                  <svg class="modern-field__copy-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                  </svg>
-                </button>
-              </div>
-              <textarea
-                id="planQuery"
-                class="modern-field__textarea"
-                rows="4"
-                placeholder="e.g. Review error handling and auth boundaries before we adjourn for release."
-                spellcheck="true"
-              ></textarea>
-            </div>
-            <p class="hint plan-status" id="planStatus" aria-live="polite"></p>
-            <p class="plan-rephrase" id="planRephrase"></p>
-            <ul class="plan-focus-list" id="planFocusList"></ul>
-            <p class="plan-rationale" id="planRationale"></p>
-          </div>
-        </div>
-      </form>
-    </div>
-  </main>
-  </div>
   </div>
 
+  <div id="hallModal" class="hall-modal" hidden role="dialog" aria-modal="true" aria-labelledby="hallModalTitle">
+    <div class="hall-modal__backdrop" data-modal-close tabindex="-1"></div>
+    <div class="hall-modal__panel hall-modal__panel--wide panel">
+      <div class="hall-modal__head">
+        <h2 id="hallModalTitle" class="hall-modal__title">Dialog</h2>
+        <button type="button" class="icon-btn hall-modal__close" id="hallModalClose" aria-label="Close dialog">
+          <svg class="icon-btn__svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="hall-modal__body" id="hallModalBody"></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
   <script src="/static/hall.js" type="module"></script>
 </body>
 </html>

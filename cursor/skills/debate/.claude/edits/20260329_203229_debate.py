@@ -25,8 +25,8 @@ import weakref
 from pathlib import Path
 from datetime import datetime
 
-from .ui_server import start_ui_server
-from ._utils import (
+from ui_server import start_ui_server
+from _utils import (
     find_git_root,
     subprocess_creation_flags,
     safe_read_json,
@@ -866,7 +866,7 @@ class AgentRunner:
         try:
             text = self.output_path.read_text(encoding="utf-8", errors="replace")
             return extract_json_from_text(text)
-        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        except Exception:
             return None
 
     def to_dict(self):
@@ -1182,7 +1182,7 @@ def write_debate_graph_mermaid(work_dir: Path, steps: list[dict]) -> None:
     prev = "nStart"
     for i, s in enumerate(steps):
         nid = s.get("id", f"s{i}")
-        safe_label = (s.get("label") or nid).replace('"', "'").replace("\\", "/")[:80]
+        safe_label = (s.get("label") or nid).replace('"', "'")[:80]
         lines.append(f'  {nid}["{safe_label}"]')
         lines.append(f"  {prev} --> {nid}")
         prev = nid
@@ -1313,200 +1313,6 @@ def write_debate_graph_excalidraw(work_dir: Path, steps: list[dict]) -> None:
     )
 
 
-@dataclasses.dataclass
-class _DebateContext:
-    """Immutable context bundle for sequential debate helpers."""
-    num_agents: int
-    workspaces: list[str]
-    work_dir: Path
-    timeout: int
-    status_file: Path
-    target: str
-    debate_deadline_monotonic: float | None
-
-
-def _check_debate_deadline(ctx: _DebateContext) -> bool:
-    """Return True and emit events/status if the debate wall-clock deadline has passed."""
-    if ctx.debate_deadline_monotonic is None or time.monotonic() < ctx.debate_deadline_monotonic:
-        return False
-    append_event(
-        ctx.work_dir,
-        {
-            "kind": "stage_output",
-            "stage": "debate_deadline",
-            "title": "Debate time limit reached",
-            "subtitle": "No further turns will be started",
-            "body": (
-                "Sequential debate wall clock expired. Partial rounds are preserved; "
-                "tally follows, then improvement-plan.md (three persona passes, digest-informed)."
-            ),
-        },
-    )
-    write_status(
-        ctx.status_file,
-        {
-            "phase": "sequential_debate",
-            "target": ctx.target,
-            "debate_mode": "sequential",
-            "debate_deadline_hit": True,
-            "agents": debate_status_agents_triplet(None, "idle"),
-        },
-    )
-    return True
-
-
-def _run_single_debate_turn(
-    ctx: _DebateContext,
-    finding: dict,
-    fi: int,
-    turn_idx: int,
-    role: str,
-    prior_turns: list[dict],
-    to_debate: list[dict],
-    vote_rows_by_fid: dict[str, list[dict]],
-    debate_track: list[dict],
-    graph_steps: list[dict],
-    graph_counter: int,
-) -> int:
-    """Execute one open/challenge/resolve turn. Returns updated graph_counter."""
-    fid = finding["id"]
-    slot = slot_for_turn(turn_idx, ctx.num_agents)
-    persona = persona_for_slot(slot)
-    agent_name = persona["display_name"]
-    ws = ctx.workspaces[slot] if slot < len(ctx.workspaces) else ctx.workspaces[0]
-    prior_summary = format_prior_turns_for_prompt(prior_turns)
-
-    prompt = build_turn_prompt(finding, role, prior_summary, persona)
-    turns_dir = ctx.work_dir / "debate_turns"
-    out_path = turns_dir / f"{fid}_{turn_idx}_{role}.txt"
-    step_id = f"n{graph_counter}"
-    graph_counter += 1
-    label = f"{fid} · {role} · {persona['short']}"
-    graph_steps.append(
-        {"id": step_id, "label": label, "finding_id": fid, "role": role, "persona": persona["key"]}
-    )
-    debate_track.append(
-        {
-            "finding_id": fid,
-            "role": role,
-            "agent_name": agent_name,
-            "persona_key": persona["key"],
-            "slot": slot,
-            "state": "live",
-            "step_id": step_id,
-        }
-    )
-
-    write_status(
-        ctx.status_file,
-        {
-            "phase": "sequential_debate",
-            "target": ctx.target,
-            "debate_mode": "sequential",
-            "current_finding": fid,
-            "current_turn": role,
-            "current_turn_index": turn_idx,
-            "findings_total": len(to_debate),
-            "finding_index": fi,
-            "debate_track": debate_track + [],
-            "agents": debate_status_agents_triplet(slot, "running"),
-            "debate_deadline_monotonic": ctx.debate_deadline_monotonic,
-        },
-    )
-
-    runner = AgentRunner(
-        slot,
-        ws,
-        prompt,
-        out_path,
-        ctx.timeout,
-        work_dir=ctx.work_dir,
-        display_name=agent_name,
-        persona_key=persona["key"],
-        stream_meta={
-            "phase": "debate_turn",
-            "finding_id": fid,
-            "role": role,
-            "persona": persona["key"],
-        },
-    )
-    runner.run()
-
-    parsed = runner.get_result()
-    record = {
-        "finding_id": fid,
-        "role": role,
-        "agent_slot": slot,
-        "agent_name": agent_name,
-        "persona_key": persona["key"],
-        "status": runner.status,
-        "output_path": str(out_path),
-        "parsed": parsed,
-    }
-    _append_debate_turn_jsonl(ctx.work_dir, record)
-
-    vote = "abstain"
-    comment = ""
-    stance = ""
-    rationale_full = ""
-    if isinstance(parsed, dict):
-        vote = str(parsed.get("vote", "abstain")).lower()
-        if vote not in ("agree", "disagree"):
-            vote = "abstain"
-        rationale_full = str(parsed.get("rationale", ""))[:4000]
-        comment = rationale_full[:500]
-        stance = str(parsed.get("stance", ""))[:300]
-        prior_turns.append(
-            {
-                "agent_name": agent_name,
-                "role": role,
-                "vote": vote,
-                "stance": stance,
-                "rationale": rationale_full or comment,
-            }
-        )
-    else:
-        raw_tail = log_tail_bytes(out_path, 3000)
-        prior_turns.append(
-            {
-                "agent_name": agent_name,
-                "role": role,
-                "vote": "abstain",
-                "stance": "(no structured JSON -- see rationale)",
-                "rationale": raw_tail
-                or (runner.error or "No parseable output; inspect debate_turns log."),
-            }
-        )
-
-    if runner.status == "completed" and vote in ("agree", "disagree"):
-        vote_rows_by_fid[fid].append(
-            {
-                "agent": f"{agent_name} ({role})",
-                "vote": vote,
-                "comment": comment,
-                "role": role,
-            }
-        )
-
-    debate_track[-1]["state"] = "done" if runner.status == "completed" else runner.status
-
-    append_event(
-        ctx.work_dir,
-        {
-            "kind": "stage_output",
-            "stage": "debate_turn",
-            "title": label,
-            "subtitle": f"Status: {runner.status}",
-            "body": (stance or comment or log_tail_bytes(out_path, 4000))[:8000],
-        },
-    )
-
-    write_debate_graph_mermaid(ctx.work_dir, graph_steps)
-    write_debate_graph_excalidraw(ctx.work_dir, graph_steps)
-
-    return graph_counter
-
-
 def phase_sequential_findings_debate(
     num_agents: int,
     workspaces: list[str],
@@ -1517,10 +1323,10 @@ def phase_sequential_findings_debate(
     target: str,
     max_findings: int | None = None,
     debate_deadline_monotonic: float | None = None,
-) -> tuple[dict[str, list[dict]], list[dict], bool, list[dict]]:
+) -> tuple[dict[str, list[dict]], list[dict], bool]:
     """
-    For each finding, run open -> challenge -> resolve sequentially (one agent each).
-    Returns (vote_rows_by_finding_id, graph_steps, deadline_was_hit, debate_track for UI).
+    For each finding, run open → challenge → resolve sequentially (one agent each).
+    Returns (vote_rows_by_finding_id, debate_track_steps for viz, deadline_was_hit).
     """
     print("\n=== PHASE 4 (sequential): Debate each finding ===")
     turns_dir = work_dir / "debate_turns"
@@ -1528,16 +1334,7 @@ def phase_sequential_findings_debate(
     if (work_dir / "debate_turns.jsonl").is_file():
         (work_dir / "debate_turns.jsonl").unlink()
 
-    ctx = _DebateContext(
-        num_agents=num_agents,
-        workspaces=workspaces,
-        work_dir=work_dir,
-        timeout=timeout,
-        status_file=status_file,
-        target=target,
-        debate_deadline_monotonic=debate_deadline_monotonic,
-    )
-
+    deadline_hit = False
     dl_note = ""
     if debate_deadline_monotonic is not None:
         remain = max(0.0, debate_deadline_monotonic - time.monotonic())
@@ -1549,7 +1346,7 @@ def phase_sequential_findings_debate(
             "kind": "stage_output",
             "stage": "sequential_debate",
             "title": "Sequential per-finding debate",
-            "subtitle": "open -> challenge -> resolve for each finding",
+            "subtitle": "open → challenge → resolve for each finding",
             "body": (
                 f"{len(findings)} finding(s) after dedup. Cap: "
                 f"{max_findings if max_findings is not None else 'none'}.{dl_note}"
@@ -1566,24 +1363,184 @@ def phase_sequential_findings_debate(
     write_debate_graph_mermaid(work_dir, graph_steps)
     write_debate_graph_excalidraw(work_dir, graph_steps)
     debate_track: list[dict] = []
-    deadline_hit = False
 
     for fi, finding in enumerate(to_debate):
+        fid = finding["id"]
         prior_turns: list[dict] = []
 
         for turn_idx, role in enumerate(TURN_ROLES):
-            if _check_debate_deadline(ctx):
+            if debate_deadline_monotonic is not None and time.monotonic() >= debate_deadline_monotonic:
                 deadline_hit = True
+                append_event(
+                    work_dir,
+                    {
+                        "kind": "stage_output",
+                        "stage": "debate_deadline",
+                        "title": "Debate time limit reached",
+                        "subtitle": "No further turns will be started",
+                        "body": (
+                            "Sequential debate wall clock expired. Partial rounds are preserved; "
+                            "tally follows, then improvement-plan.md (three persona passes, digest-informed)."
+                        ),
+                    },
+                )
+                write_status(
+                    status_file,
+                    {
+                        "phase": "sequential_debate",
+                        "target": target,
+                        "debate_mode": "sequential",
+                        "debate_deadline_hit": True,
+                        "agents": debate_status_agents_triplet(None, "idle"),
+                    },
+                )
                 break
 
-            graph_counter = _run_single_debate_turn(
-                ctx, finding, fi, turn_idx, role, prior_turns,
-                to_debate, vote_rows_by_fid, debate_track, graph_steps, graph_counter,
+            slot = slot_for_turn(turn_idx, num_agents)
+            persona = persona_for_slot(slot)
+            agent_name = persona["display_name"]
+            ws = workspaces[slot] if slot < len(workspaces) else workspaces[0]
+            prior_summary = format_prior_turns_for_prompt(prior_turns)
+
+            prompt = build_turn_prompt(finding, role, prior_summary, persona)
+            out_path = turns_dir / f"{fid}_{turn_idx}_{role}.txt"
+            step_id = f"n{graph_counter}"
+            graph_counter += 1
+            label = f"{fid} · {role} · {persona['short']}"
+            graph_steps.append(
+                {
+                    "id": step_id,
+                    "label": label,
+                    "finding_id": fid,
+                    "role": role,
+                    "persona": persona["key"],
+                }
             )
+            debate_track.append(
+                {
+                    "finding_id": fid,
+                    "role": role,
+                    "agent_name": agent_name,
+                    "persona_key": persona["key"],
+                    "slot": slot,
+                    "state": "live",
+                    "step_id": step_id,
+                }
+            )
+
+            write_status(
+                status_file,
+                {
+                    "phase": "sequential_debate",
+                    "target": target,
+                    "debate_mode": "sequential",
+                    "current_finding": fid,
+                    "current_turn": role,
+                    "current_turn_index": turn_idx,
+                    "findings_total": len(to_debate),
+                    "finding_index": fi,
+                    "debate_track": debate_track + [],
+                    "agents": debate_status_agents_triplet(slot, "running"),
+                    "debate_deadline_monotonic": debate_deadline_monotonic,
+                },
+            )
+
+            runner = AgentRunner(
+                slot,
+                ws,
+                prompt,
+                out_path,
+                timeout,
+                work_dir=work_dir,
+                display_name=agent_name,
+                persona_key=persona["key"],
+                stream_meta={
+                    "phase": "debate_turn",
+                    "finding_id": fid,
+                    "role": role,
+                    "persona": persona["key"],
+                },
+            )
+            runner.run()
+
+            parsed = runner.get_result()
+            record = {
+                "finding_id": fid,
+                "role": role,
+                "agent_slot": slot,
+                "agent_name": agent_name,
+                "persona_key": persona["key"],
+                "status": runner.status,
+                "output_path": str(out_path),
+                "parsed": parsed,
+            }
+            _append_debate_turn_jsonl(work_dir, record)
+
+            vote = "abstain"
+            comment = ""
+            stance = ""
+            rationale_full = ""
+            if isinstance(parsed, dict):
+                vote = str(parsed.get("vote", "abstain")).lower()
+                if vote not in ("agree", "disagree"):
+                    vote = "abstain"
+                rationale_full = str(parsed.get("rationale", ""))[:4000]
+                comment = rationale_full[:500]
+                stance = str(parsed.get("stance", ""))[:300]
+                prior_turns.append(
+                    {
+                        "agent_name": agent_name,
+                        "role": role,
+                        "vote": vote,
+                        "stance": stance,
+                        "rationale": rationale_full or comment,
+                    }
+                )
+            else:
+                raw_tail = log_tail_bytes(out_path, 3000)
+                prior_turns.append(
+                    {
+                        "agent_name": agent_name,
+                        "role": role,
+                        "vote": "abstain",
+                        "stance": "(no structured JSON — see rationale)",
+                        "rationale": raw_tail
+                        or (runner.error or "No parseable output; inspect debate_turns log."),
+                    }
+                )
+
+            if runner.status == "completed" and vote in ("agree", "disagree"):
+                vote_rows_by_fid[fid].append(
+                    {
+                        "agent": f"{agent_name} ({role})",
+                        "vote": vote,
+                        "comment": comment,
+                        "role": role,
+                    }
+                )
+
+            debate_track[-1]["state"] = "done" if runner.status == "completed" else runner.status
+
+            append_event(
+                work_dir,
+                {
+                    "kind": "stage_output",
+                    "stage": "debate_turn",
+                    "title": label,
+                    "subtitle": f"Status: {runner.status}",
+                    "body": (stance or comment or log_tail_bytes(out_path, 4000))[:8000],
+                },
+            )
+
+            write_debate_graph_mermaid(work_dir, graph_steps)
+            write_debate_graph_excalidraw(work_dir, graph_steps)
 
         if deadline_hit:
             break
 
+        # findings not in to_debate get no rows — tally will treat as empty
+
+    # Remaining findings (if capped): no sequential votes; legacy empty
     write_status(
         status_file,
         {
@@ -1613,7 +1570,7 @@ def phase_sequential_findings_debate(
         },
     )
 
-    return vote_rows_by_fid, graph_steps, deadline_hit, debate_track
+    return vote_rows_by_fid, graph_steps, deadline_hit
 
 
 def phase_tally(
@@ -2047,24 +2004,21 @@ def execute_debate(
     sequential_vote_map: dict[str, list[dict]] | None = None
     vote_agents: list[AgentRunner] = []
     debate_deadline_hit = False
-    debate_track_final: list[dict] = []
 
     if debate_mode == "sequential":
         dl_mono: float | None = None
         if debate_deadline_seconds is not None and debate_deadline_seconds > 0:
             dl_mono = time.monotonic() + float(debate_deadline_seconds)
-        sequential_vote_map, _, debate_deadline_hit, debate_track_final = (
-            phase_sequential_findings_debate(
-                num_agents,
-                workspaces,
-                findings,
-                work_dir,
-                timeout,
-                status_file,
-                str(target),
-                max_findings_debate,
-                debate_deadline_monotonic=dl_mono,
-            )
+        sequential_vote_map, _, debate_deadline_hit = phase_sequential_findings_debate(
+            num_agents,
+            workspaces,
+            findings,
+            work_dir,
+            timeout,
+            status_file,
+            str(target),
+            max_findings_debate,
+            debate_deadline_monotonic=dl_mono,
         )
     else:
         vote_agents = phase_vote(
@@ -2080,7 +2034,7 @@ def execute_debate(
     )
     append_tally_event(work_dir, score, rating, findings)
 
-    tally_status: dict = {
+    write_status(status_file, {
         "phase": "tally_done",
         "target": str(target),
         "num_agents": num_agents,
@@ -2090,11 +2044,7 @@ def execute_debate(
         "findings_count": len(findings),
         "eval_agents": [a.to_dict() for a in eval_agents],
         "vote_agents": [a.to_dict() for a in vote_agents],
-    }
-    if debate_track_final:
-        tally_status["debate_track"] = debate_track_final
-        tally_status["agents"] = debate_status_agents_triplet(None, "idle")
-    write_status(status_file, tally_status)
+    })
 
     report = generate_report(
         scan,
@@ -2157,7 +2107,7 @@ def execute_debate(
             encoding="utf-8",
         )
 
-    complete_status: dict = {
+    write_status(status_file, {
         "phase": "complete",
         "target": str(target),
         "num_agents": num_agents,
@@ -2167,11 +2117,7 @@ def execute_debate(
         "findings_deduped": len(findings),
         "eval_agents": [a.to_dict() for a in eval_agents],
         "vote_agents": [a.to_dict() for a in vote_agents],
-    }
-    if debate_track_final:
-        complete_status["debate_track"] = debate_track_final
-        complete_status["agents"] = debate_status_agents_triplet(None, "idle")
-    write_status(status_file, complete_status)
+    })
 
     append_event(work_dir, {
         "kind": "stage_output",
@@ -2253,7 +2199,6 @@ def main():
         ),
     )
     args = parser.parse_args()
-    args.timeout = max(30, min(3600, args.timeout))
 
     target = Path(args.target).resolve()
     if not target.is_dir():
@@ -2300,7 +2245,7 @@ def main():
             sys.exit(0)
         except urllib.error.URLError as e:
             print(f"ERROR: Could not reach Debate Hall at {args.hall_url}: {e}")
-            print("Start the hall: debate-hall   (or: python -m debate_hall)")
+            print("Start the hall: python hall_server.py")
             sys.exit(1)
 
     work_dir = Path(args.output_dir) if args.output_dir else target / ".debate"

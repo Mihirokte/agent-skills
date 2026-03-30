@@ -4,10 +4,6 @@ const HINT =
 const MERMAID_PLACEHOLDER =
   "No graph file yet. Sequential mode writes debate_graph.mermaid after each turn finishes.";
 
-/** Inline icons for compact modal / toolbars (ui-design-brain: icon + label via aria) */
-const ICON_CLIPBOARD = `<svg class="icon-btn__svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
-const ICON_DOWNLOAD = `<svg class="icon-btn__svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
-
 let currentRunId = null;
 let streamLineAfter = 0;
 let snapshotTimer = null;
@@ -37,16 +33,11 @@ let debateNetwork = null;
 let debateNodes = null;
 let debateEdges = null;
 let lastNetSig = "";
-/** Last snapshot passed to updateDebateWebFromSnap (node click I/O). */
-let lastGraphSnap = null;
-let debateNetClickHandler = null;
 
 let hallOverlayDepth = 0;
 
 function destroyDebateWeb() {
   lastNetSig = "";
-  lastGraphSnap = null;
-  debateNetClickHandler = null;
   if (debateNetwork) {
     try {
       debateNetwork.destroy();
@@ -59,37 +50,6 @@ function destroyDebateWeb() {
   }
   const el = document.getElementById("debateNet");
   if (el) el.replaceChildren();
-}
-
-function physicsOptsForStabilize() {
-  return {
-    enabled: true,
-    stabilization: { iterations: 120, updateInterval: 10 },
-    solver: "forceAtlas2Based",
-    forceAtlas2Based: {
-      gravitationalConstant: -42,
-      centralGravity: 0.012,
-      springLength: 108,
-      springConstant: 0.042,
-      damping: 0.55,
-      avoidOverlap: 0.72,
-    },
-    maxVelocity: 28,
-    minVelocity: 0.35,
-    timestep: 0.4,
-  };
-}
-
-/** Run layout then freeze so edges stay visually attached to nodes. */
-function stabilizeDebateNetworkThenFreeze(net) {
-  if (!net) return;
-  net.setOptions({ physics: physicsOptsForStabilize() });
-  net.once("stabilizationIterationsDone", () => {
-    net.setOptions({ physics: { enabled: false } });
-    net.fit({
-      animation: { duration: 380, easingFunction: "easeInOutQuad" },
-    });
-  });
 }
 
 function updateStreamSummary() {
@@ -174,124 +134,10 @@ function updateHallNowBar(snap) {
   bar.classList.toggle("hall-now-bar--hot", hot);
 }
 
-function formatTurnRecordForModal(rec, tails) {
-  if (!rec || typeof rec !== "object") return "";
-  let s = "";
-  if (rec.parsed && typeof rec.parsed === "object") {
-    s += JSON.stringify(rec.parsed, null, 2) + "\n";
-  }
-  s += `Agent run status: ${rec.status || "—"}\n`;
-  const op = rec.output_path ? String(rec.output_path) : "";
-  const base = op.split(/[/\\]/).pop() || "";
-  if (base) {
-    s += `Output file: debate_turns/${base}\n`;
-    const tailKey = Object.keys(tails || {}).find(
-      (k) => k === base || k.endsWith(base),
-    );
-    if (tailKey && tails[tailKey]) {
-      s +=
-        "\n--- Raw agent output (tail) ---\n" +
-        String(tails[tailKey]).slice(-8000);
-    }
-  }
-  return s;
-}
-
-function formatDebateNodeDetail(nodeId, snap) {
-  if (!snap) return "";
-  const st = snap.status || {};
-  const track = snap.debate_track || [];
-  const turns = snap.debate_turns_preview || [];
-  const tails = snap.log_tails || {};
-
-  if (nodeId === "phase") {
-    const lines = [
-      `Phase: ${st.phase || "—"}`,
-      st.score != null && `Score: ${st.score}`,
-      snap.meta?.status && `Archive: ${snap.meta.status}`,
-      st.target && `Target: ${st.target}`,
-    ].filter(Boolean);
-    return (
-      lines.join("\n") +
-      "\n\nClick a turn node (st…) for parsed output + raw log. Speaker nodes list their turns."
-    );
-  }
-
-  const agm = nodeId.match(/^ag(\d+)$/);
-  if (agm) {
-    const slot = parseInt(agm[1], 10);
-    const agents = Array.isArray(st.agents) ? st.agents : [];
-    const a = agents.find((x) => x.slot === slot);
-    const name = a?.name || `Speaker ${slot + 1}`;
-    const status = a?.status || "idle";
-    const related = track
-      .map((step, i) => ({ step, i }))
-      .filter(({ step }) => typeof step.slot === "number" && step.slot === slot);
-    let out = `Speaker: ${name}\nSlot: ${slot}\nStatus: ${status}\n\nTurns:\n`;
-    if (!related.length) out += "(no steps linked to this slot on debate_track)\n";
-    else {
-      for (const { step, i } of related.slice(-16)) {
-        out += `\n— st${i}: ${step.role || "?"} · finding ${step.finding_id ?? "?"} · ${step.state || ""}\n`;
-        const rec = turns[i];
-        if (rec) out += formatTurnRecordForModal(rec, tails);
-      }
-    }
-    return out.trim();
-  }
-
-  const stm = nodeId.match(/^st(\d+)$/);
-  if (!stm) return "";
-  const idx = parseInt(stm[1], 10);
-  const step = track[idx];
-  if (!step)
-    return `Turn index ${idx}: missing from debate_track (stale UI or old run artifact).`;
-  let out = `Finding: ${step.finding_id}\nRole: ${step.role}\nAgent: ${step.agent_name}\nTrack state: ${step.state}\n`;
-  const rec = turns[idx];
-  if (rec) {
-    out += "\n--- Output (parsed + raw) ---\n";
-    out += formatTurnRecordForModal(rec, tails);
-  } else {
-    out +=
-      "\n(No debate_turns.jsonl row at this index — preview truncated or run has no JSONL.)\n";
-  }
-  out += "\n--- Input (prompt) ---\n";
-  out +=
-    "Prompt = finding context + prior judgments on this finding. Full prompt text is in the run folder under debate_turns/*.txt for this turn.\n";
-  return out;
-}
-
-function attachDebateNetClick(net) {
-  if (!net || typeof net.on !== "function") return;
-  if (debateNetClickHandler) {
-    try {
-      net.off("click", debateNetClickHandler);
-    } catch (_) {
-      /* vis-network version differences */
-    }
-  }
-  debateNetClickHandler = (params) => {
-    if (!params?.nodes?.length) return;
-    const nid = params.nodes[0];
-    const snap = lastGraphSnap;
-    const text = formatDebateNodeDetail(nid, snap);
-    if (!text) return;
-    const title =
-      nid === "phase"
-        ? "Assembly / phase"
-        : /^ag\d+$/.test(nid)
-          ? "Speaker"
-          : /^st\d+$/.test(nid)
-            ? "Debate turn (I/O)"
-            : "Node";
-    openHallModalPre(title, text);
-  };
-  net.on("click", debateNetClickHandler);
-}
-
 function updateDebateWebFromSnap(snap) {
   const container = document.getElementById("debateNet");
-  if (!container || !currentRunId) return;
-  lastGraphSnap = snap;
+  const wrap = document.getElementById("mermaidWrap");
+  if (!container || !wrap || wrap.hidden || !currentRunId) return;
 
   const visRef = globalThis.vis;
   if (!visRef?.DataSet || !visRef?.Network) {
@@ -404,6 +250,7 @@ function updateDebateWebFromSnap(snap) {
       to: id,
       arrows: "to",
       color: { color: "#6b7288" },
+      smooth: { type: "curvedCW", roundness: 0.18 },
     });
     prev = id;
     if (typeof s.slot === "number") {
@@ -419,13 +266,28 @@ function updateDebateWebFromSnap(snap) {
     }
   });
 
+  /** Keep physics on so the net keeps drifting like a live system (tuned for low churn). */
+  const physicsAlwaysOn = {
+    enabled: true,
+    stabilization: { iterations: 120, updateInterval: 10 },
+    solver: "forceAtlas2Based",
+    forceAtlas2Based: {
+      gravitationalConstant: -42,
+      centralGravity: 0.012,
+      springLength: 108,
+      springConstant: 0.042,
+      damping: 0.55,
+      avoidOverlap: 0.72,
+    },
+    maxVelocity: 28,
+    minVelocity: 0.35,
+    timestep: 0.4,
+  };
+
   const opts = {
     nodes: { borderWidth: 2, shadow: true },
-    edges: {
-      width: 1,
-      smooth: { type: "continuous", roundness: 0.35 },
-    },
-    physics: physicsOptsForStabilize(),
+    edges: { width: 1 },
+    physics: physicsAlwaysOn,
     interaction: { hover: true, zoomView: true, dragView: true },
   };
 
@@ -438,14 +300,17 @@ function updateDebateWebFromSnap(snap) {
       { nodes: debateNodes, edges: debateEdges },
       opts,
     );
-    stabilizeDebateNetworkThenFreeze(debateNetwork);
-    attachDebateNetClick(debateNetwork);
+    debateNetwork.once("stabilizationIterationsDone", () => {
+      debateNetwork.fit({
+        animation: { duration: 380, easingFunction: "easeInOutQuad" },
+      });
+    });
   } else {
     debateNodes.clear();
     debateEdges.clear();
     debateNodes.add(nodes);
     debateEdges.add(edges);
-    stabilizeDebateNetworkThenFreeze(debateNetwork);
+    debateNetwork.setOptions({ physics: { ...physicsAlwaysOn } });
   }
 }
 
@@ -456,115 +321,10 @@ function openHallModalPre(title, text) {
   if (!m || !body || !tEl) return;
   tEl.textContent = title;
   body.replaceChildren();
-
-  const stack = document.createElement("div");
-  stack.className = "hall-modal__stack";
-  const toolbar = document.createElement("div");
-  toolbar.className = "hall-modal__toolbar";
-  const ta = document.createElement("textarea");
-  ta.className = "hall-modal__textarea";
-  ta.readOnly = true;
-  ta.setAttribute("spellcheck", "false");
-  ta.value = text || "(empty)";
-  const copyBtn = document.createElement("button");
-  copyBtn.type = "button";
-  copyBtn.className = "icon-btn icon-btn--border";
-  copyBtn.setAttribute("aria-label", "Copy to clipboard");
-  copyBtn.title = "Copy";
-  copyBtn.innerHTML = `${ICON_CLIPBOARD}<span class="visually-hidden">Copy</span>`;
-  copyBtn.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(ta.value || "");
-      copyBtn.classList.add("icon-btn--flash");
-      setTimeout(() => copyBtn.classList.remove("icon-btn--flash"), 400);
-    } catch (_) {
-      /* ignore */
-    }
-  });
-  toolbar.appendChild(copyBtn);
-  stack.appendChild(toolbar);
-  stack.appendChild(ta);
-  body.appendChild(stack);
-
-  m.hidden = false;
-  document.body.classList.add("hall-modal-open");
-  document.getElementById("hallModalClose")?.focus();
-}
-
-/** Implementation plan: preview + optional full file from `GET /api/runs/<id>/improvement-plan`. */
-function openImplementationPlanModal(previewText, modalTitle) {
-  const m = document.getElementById("hallModal");
-  const body = document.getElementById("hallModalBody");
-  const tEl = document.getElementById("hallModalTitle");
-  if (!m || !body || !tEl) return;
-  tEl.textContent = modalTitle || "plan created";
-  body.replaceChildren();
-
-  const intro = document.createElement("p");
-  intro.className = "hall-modal-intro";
-  intro.textContent =
-    "Saved as improvement-plan.md in the run folder. Copy or load the full file if the preview is truncated.";
-
-  const stack = document.createElement("div");
-  stack.className = "hall-modal__stack";
-  const toolbar = document.createElement("div");
-  toolbar.className = "hall-modal__toolbar";
-
-  const ta = document.createElement("textarea");
-  ta.className = "hall-modal__textarea";
-  ta.readOnly = true;
-  ta.setAttribute("spellcheck", "false");
-  ta.value = previewText?.trim() || "(empty)";
-
-  const btnCopy = document.createElement("button");
-  btnCopy.type = "button";
-  btnCopy.className = "icon-btn icon-btn--border";
-  btnCopy.setAttribute("aria-label", "Copy plan to clipboard");
-  btnCopy.title = "Copy";
-  btnCopy.innerHTML = `${ICON_CLIPBOARD}<span class="visually-hidden">Copy</span>`;
-  btnCopy.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(ta.value || "");
-      btnCopy.classList.add("icon-btn--flash");
-      setTimeout(() => btnCopy.classList.remove("icon-btn--flash"), 400);
-    } catch (_) {
-      /* ignore */
-    }
-  });
-
-  const btnLoad = document.createElement("button");
-  btnLoad.type = "button";
-  btnLoad.className = "icon-btn icon-btn--border";
-  btnLoad.setAttribute("aria-label", "Load full improvement plan file");
-  btnLoad.title = "Load full plan";
-  btnLoad.innerHTML = `${ICON_DOWNLOAD}<span class="visually-hidden">Load full plan</span>`;
-  btnLoad.addEventListener("click", async () => {
-    const id = currentRunId;
-    if (!id) return;
-    btnLoad.disabled = true;
-    try {
-      const r = await fetch(
-        `/api/runs/${encodeURIComponent(id)}/improvement-plan`,
-      );
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      ta.value = await r.text();
-      btnLoad.classList.add("icon-btn--flash");
-      setTimeout(() => btnLoad.classList.remove("icon-btn--flash"), 400);
-    } catch (e) {
-      ta.value = `${ta.value || ""}\n\n[Load full plan failed: ${e.message || e}]`;
-    } finally {
-      btnLoad.disabled = false;
-    }
-  });
-
-  toolbar.appendChild(btnCopy);
-  toolbar.appendChild(btnLoad);
-  stack.appendChild(toolbar);
-  stack.appendChild(ta);
-
-  body.appendChild(intro);
-  body.appendChild(stack);
-
+  const pre = document.createElement("pre");
+  pre.className = "hall-modal-pre";
+  pre.textContent = text || "(empty)";
+  body.appendChild(pre);
   m.hidden = false;
   document.body.classList.add("hall-modal-open");
   document.getElementById("hallModalClose")?.focus();
@@ -701,7 +461,7 @@ async function fetchMermaid(runId) {
 function prepareMermaidPanelForRun() {
   const wrap = document.getElementById("mermaidWrap");
   const mp = document.getElementById("mermaidPre");
-  if (wrap) wrap.hidden = true;
+  wrap.hidden = false;
   mp.textContent = MERMAID_PLACEHOLDER;
   lastMermaidKey = null;
   destroyDebateWeb();
@@ -1046,7 +806,7 @@ function applySnapshot(snap) {
   const mer = snap.debate_graph_mermaid;
   const mp = document.getElementById("mermaidPre");
   const wrap = document.getElementById("mermaidWrap");
-  if (wrap) wrap.hidden = true;
+  if (currentRunId) wrap.hidden = false;
   if (mer) {
     mp.textContent = mer;
     lastMermaidKey = null;
@@ -1173,22 +933,9 @@ async function onRoute() {
       return;
     }
     const sel = document.getElementById("runPick");
-    let found = [...sel.options].some((o) => o.value === id);
-    // New runs can appear in GET /api/runs a moment after POST (registry/fs).
-    if (!found) {
-      for (let attempt = 0; attempt < 10 && !found; attempt++) {
-        await new Promise((r) => setTimeout(r, 100));
-        await refreshRunSelect();
-        found = [...sel.options].some((o) => o.value === id);
-      }
-    }
-    if (!found) {
-      const msg =
-        "This assembly is not on the clerk’s roll yet (or it was removed). " +
-        "If you just started a run, wait a moment and try again from the roll, or refresh the page.";
+    if (![...sel.options].some((o) => o.value === id)) {
       document.getElementById("statusLine").textContent =
         "That assembly id is not on the clerk’s roll (moved or removed).";
-      alert(msg);
       clearRunHash();
       currentRunId = null;
       appliedMetaTargetForRun = null;
@@ -1215,7 +962,6 @@ async function onRoute() {
   } finally {
     if (openingAssembly) popHallOverlay();
     else setRollSyncing(false);
-    updateSlidesVisibility();
   }
 }
 
@@ -1337,7 +1083,7 @@ document.getElementById("planQuery").addEventListener("input", () => {
   lastPlanOkKey = null;
 });
 document.getElementById("btnPickFolder").addEventListener("click", nativePickFolder);
-document.getElementById("btnCopyPlanFull")?.addEventListener("click", (e) => {
+document.getElementById("btnCopyPlanFull").addEventListener("click", (e) => {
   const b = e.currentTarget;
   void copyFullPlanToClipboard(b);
 });
@@ -1465,25 +1211,12 @@ document.getElementById("startForm").addEventListener("submit", async (ev) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    let j;
-    try {
-      j = await r.json();
-    } catch {
-      alert(`Server returned non-JSON (${r.status}). Is Debate Hall running?`);
-      return;
-    }
+    const j = await r.json();
     if (!r.ok) {
-      alert(j.error || `Failed (${r.status})`);
+      alert(j.error || "Failed");
       return;
     }
-    const rid = j.run_id;
-    if (!rid) {
-      alert("Server did not return run_id.");
-      return;
-    }
-    currentRunId = rid;
-    setRunHash(rid);
-    updateSlidesVisibility();
+    setRunHash(j.run_id);
     flashButtonComplete(btn);
   } finally {
     btn.disabled = false;
@@ -1516,7 +1249,7 @@ document.getElementById("btnStopAgents").addEventListener("click", async () => {
   }
 });
 
-document.getElementById("btnCopyAll")?.addEventListener("click", async () => {
+document.getElementById("btnCopyAll").addEventListener("click", async () => {
   const btn = document.getElementById("btnCopyAll");
   const a = document.getElementById("streamPre").textContent;
   const b = document.getElementById("mermaidPre").textContent;
@@ -1585,9 +1318,9 @@ document.getElementById("btnOpenTranscript")?.addEventListener("click", () => {
 });
 
 document.getElementById("btnOpenImprovement")?.addEventListener("click", () => {
-  openImplementationPlanModal(
+  openHallModalPre(
+    "Improvement plan",
     document.getElementById("improvementPlanPre")?.textContent ?? "",
-    "Implementation plan",
   );
 });
 
@@ -1616,7 +1349,7 @@ document.getElementById("btnOpenPlanDetails")?.addEventListener("click", () => {
 
 setPathHint(HINT);
 scheduleTargetInspect();
-void onRoute();
+onRoute();
 setInterval(refreshRunSelect, 20000);
 
 /* =========================================
@@ -1701,11 +1434,23 @@ setInterval(() => {
     }
   }
 
+  // Slide 3 Modal triggering logic
   const planEl = document.getElementById("improvementPlanPre");
   if (planEl) {
     const textLen = (planEl.textContent || "").length;
     if (textLen > 10 && lastPlanTextLen <= 10) {
-      openImplementationPlanModal(planEl.textContent || "", "plan created");
+      // Plan was just created
+      const bodyEl = document.getElementById("hallModalBody");
+      const phEl = document.getElementById("planCreatedPlaceholder");
+      if (bodyEl && phEl) {
+        bodyEl.innerHTML = "";
+        phEl.hidden = false;
+      }
+      const modal = document.getElementById("hallModal");
+      if (modal) {
+        modal.hidden = false;
+        document.body.classList.add("hall-modal-open");
+      }
     }
     lastPlanTextLen = textLen;
   }
