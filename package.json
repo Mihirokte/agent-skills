@@ -1,7 +1,7 @@
 {
   "name": "agent-bridge",
-  "version": "0.1.0",
-  "description": "Sync skills, MCP servers, and hooks across Cursor, Claude Code, and Codex",
+  "version": "0.3.1",
+  "description": "Sync skills, MCP servers, and hooks across Cursor CLI, Kiro CLI, and Zed Agent",
   "type": "module",
   "bin": {
     "agent-bridge": "./dist/cli.js"
@@ -29,8 +29,8 @@
   },
   "keywords": [
     "cursor",
-    "claude-code",
-    "codex",
+    "kiro",
+    "zed",
     "mcp",
     "skills",
     "hooks",
@@ -49,9 +49,10 @@
   "dependencies": {
     "chokidar": "^4.0.3",
     "commander": "^13.1.0",
-    "smol-toml": "^1.7.1"
+    "comment-json": "^5.0.0"
   },
   "devDependencies": {
+    "@types/comment-json": "^2.4.1",
     "@types/node": "^22.20.1",
     "typescript": "^5.8.2"
   }

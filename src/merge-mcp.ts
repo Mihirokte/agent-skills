@@ -3,6 +3,8 @@ import type { McpServer, McpServers } from "./types.js";
 
 const SECRET_KEY = /(?:key|token|secret|password|passwd|api[_-]?key|auth|credential)/i;
 const SECRET_VALUE = /^(sk-|ghp_|gho_|xox[baprs]-|AIza|ya29\.|Bearer\s)/i;
+/** Already a runtime or store placeholder — do not re-scrub. */
+const PLACEHOLDER = /^\$\{[A-Z0-9_]+\}$|^\$[A-Z0-9_]+$/;
 
 /** Replace likely secrets with ${ENV_NAME} placeholders for the canonical store. */
 export function scrubSecrets(servers: McpServers): {
@@ -17,8 +19,7 @@ export function scrubSecrets(servers: McpServers): {
     if (server.env) {
       const env: Record<string, string> = {};
       for (const [k, v] of Object.entries(server.env)) {
-        // Already a placeholder — keep as-is
-        if (/^\$\{[A-Z0-9_]+\}$/.test(v)) {
+        if (PLACEHOLDER.test(v)) {
           env[k] = v;
           continue;
         }
@@ -35,7 +36,7 @@ export function scrubSecrets(servers: McpServers): {
     if (server.headers) {
       const headers: Record<string, string> = {};
       for (const [key, value] of Object.entries(server.headers)) {
-        if (/^\$\{[A-Z0-9_]+\}$/.test(value)) {
+        if (PLACEHOLDER.test(value)) {
           headers[key] = value;
           continue;
         }

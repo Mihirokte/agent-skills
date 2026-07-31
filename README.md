@@ -1,16 +1,17 @@
 # Agent Bridge
 
-**Add a skill or MCP server once. Use it in Cursor, Claude Code, and Codex.**
+**Add a skill or MCP server once. Use it in Cursor CLI, Kiro CLI, and Zed Agent.**
 
 Agent Bridge is a narrow, local-first sync package for the configuration that
 AI coding agents can genuinely share:
 
 - Agent Skills (`SKILL.md` directories)
-- MCP servers (JSON ↔ Codex TOML adapters)
-- A conservative subset of portable command hooks
+- MCP servers (JSON) for Cursor and Kiro
+- A conservative subset of portable command hooks (Cursor only)
 
-It does not copy editor settings, chat history, credentials, rules dumps, or
-unsupported features.
+It does not copy editor settings, chat history, credentials, or unsupported
+features. Zed Agent skills live in `~/.agents/skills` (official path). External
+ACP agents inside Zed still use Cursor/Kiro skill dirs.
 
 ## Install
 
@@ -23,45 +24,28 @@ agent-bridge sync
 agent-bridge status
 ```
 
-`init` seeds the bundled skills into `~/.agent-bridge/skills` and materializes
-them on the first sync. Use `--no-bundled` for an empty store.
-
 ## Add once
 
 ```bash
-# A directory containing SKILL.md
 agent-bridge add skill ./my-skill
-
-# A JSON MCP definition, or import from an agent
 agent-bridge add mcp ./mcp.json
 agent-bridge add mcp --from cursor
-agent-bridge add mcp --from claude
-agent-bridge add mcp --from codex
-
-# Explicitly portable hook manifest
+agent-bridge add mcp --from kiro
 agent-bridge add hook ./hook.json
-
-# Keep native skill/MCP paths synchronized
 agent-bridge watch
 ```
 
 ## Capability matrix
 
-| Artifact | Cursor | Claude Code | Codex |
-|----------|--------|-------------|-------|
-| Skills | `~/.cursor/skills` | `~/.claude/skills` | `~/.codex/skills` |
-| MCP | `~/.cursor/mcp.json` | `~/.claude.json` | `~/.codex/config.toml` |
-| Portable hooks | native `hooks.json` | native `settings.json` schema | unsupported |
+| Artifact | Cursor CLI | Kiro CLI | Zed Agent |
+|----------|------------|----------|-----------|
+| Skills | `~/.cursor/skills` | `~/.kiro/skills` | `~/.agents/skills` |
+| MCP | `~/.cursor/mcp.json` | `~/.kiro/settings/mcp.json` | `~/.config/zed/settings.json` → `context_servers` |
+| Portable hooks | native `hooks.json` | unsupported | unsupported |
 
-Arbitrary hooks are not auto-imported because event payloads and response
-contracts differ. `add hook` accepts only the documented portable subset and
-generates native configurations. See
-[the full matrix](docs/CAPABILITY_MATRIX.md).
+See [the full matrix](docs/CAPABILITY_MATRIX.md).
 
 ## Bundled skills
-
-The old machine inventory has been reduced to reusable skills. There is one
-copy of each runtime:
 
 | Skill | Purpose |
 |-------|---------|
@@ -72,9 +56,6 @@ copy of each runtime:
 | `debate` | Thin launcher for the separately installed Debate Hall app |
 | `debate-shutdown` | Stops Debate Hall workers without duplicating its runtime |
 
-Debate Hall implementation files remain in `debate-app`; this repository ships
-only its small integration skill.
-
 ## Conflict safety
 
 The canonical store is `~/.agent-bridge`.
@@ -84,9 +65,6 @@ The canonical store is `~/.agent-bridge`.
 3. Divergent items are **not overwritten**. Both versions remain intact and a
    copy is written under `~/.agent-bridge/conflicts/`.
 4. Non-conflicting canonical items are materialized to all enabled targets.
-
-The watch daemon uses the same conflict-safe path and suppresses its own write
-events to avoid loops.
 
 ## Secrets
 
@@ -101,11 +79,5 @@ npm install
 npm run check
 node dist/cli.js --help
 ```
-
-## Why another sync tool?
-
-Broader tools sync rules, settings, history, and other agent-specific state.
-Agent Bridge intentionally stays small: capability-gated skills, MCP, and
-portable hooks with explicit conflict handling.
 
 MIT licensed.

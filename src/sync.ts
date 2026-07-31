@@ -42,8 +42,8 @@ export interface SyncReport {
 function targetRecord<T>(value: () => T): Record<TargetId, T> {
   return {
     cursor: value(),
-    claude: value(),
-    codex: value(),
+    kiro: value(),
+    zed: value(),
   };
 }
 
@@ -133,11 +133,17 @@ export function statusReport(cfg: BridgeConfig = loadConfig()): StatusRow[] {
       capabilities.skills && fs.existsSync(paths.skillsDir)
         ? fs
             .readdirSync(paths.skillsDir, { withFileTypes: true })
-            .filter(
-              (entry) =>
-                entry.isDirectory() &&
-                fs.existsSync(path.join(paths.skillsDir, entry.name, "SKILL.md")),
-            )
+            .filter((entry) => {
+              const full = path.join(paths.skillsDir, entry.name);
+              const isDir =
+                entry.isDirectory() ||
+                (entry.isSymbolicLink() &&
+                  fs.existsSync(full) &&
+                  fs.statSync(full).isDirectory());
+              return (
+                isDir && fs.existsSync(path.join(full, "SKILL.md"))
+              );
+            })
             .map((entry) => entry.name)
         : [];
     const targetMcpIds = capabilities.mcp

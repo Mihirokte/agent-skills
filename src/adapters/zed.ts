@@ -1,9 +1,8 @@
-/** Cursor CLI adapter — skills, MCP, and portable hooks. */
+/** Zed Agent adapter — skills + context_servers MCP in settings.json. */
 export {
   importMcp,
   importSkills,
   pushMcp,
-  pushPortableHooks,
   pushSkills,
   readTargetMcp,
 } from "./common.js";

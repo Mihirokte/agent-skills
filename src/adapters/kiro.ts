@@ -1,4 +1,4 @@
-/** Codex adapter — skills + MCP; hooks remain unsupported. */
+/** Kiro CLI adapter — skills + MCP JSON; hooks unsupported. */
 export {
   importMcp,
   importSkills,

@@ -11,10 +11,10 @@ agent-bridge is meant to be **published and shared**. Keep personal data out of 
 
 ## What sync does with secrets
 
-When pulling MCP configs from Cursor, Claude Code, or Codex, values that look
-like secrets are replaced with `${PLACEHOLDER}` in
-`~/.agent-bridge/mcp/servers.json`. The original value may be appended to local
-`secrets.env` so push can expand it on this machine only.
+When pulling MCP configs from Cursor or Kiro, values that look like secrets are
+replaced with `${PLACEHOLDER}` in `~/.agent-bridge/mcp/servers.json`. The
+original value may be appended to local `secrets.env` so push can expand it on
+this machine only.
 
 Secret detection is a safety net, not a guarantee. Review the canonical store
 before sharing it.

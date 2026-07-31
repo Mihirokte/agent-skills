@@ -43,8 +43,8 @@ function ensureStore(store: string) {
 
 program
   .name("agent-bridge")
-  .description("Sync skills, MCP servers, and hooks across Cursor, Claude Code, and Codex")
-  .version("0.1.0")
+  .description("Sync skills, MCP servers, and hooks across Cursor CLI, Kiro CLI, and Zed Agent")
+  .version("0.3.1")
   .option("-s, --store <dir>", "canonical store directory", defaultStore());
 
 program
@@ -68,7 +68,7 @@ program
     console.log(
       `  bundled: ${opts.bundled ? listStoreSkills(store).join(", ") : "skipped"}`,
     );
-    console.log(`Targets: cursor, claude, codex (enabled)`);
+    console.log(`Targets: cursor, kiro, zed (enabled)`);
   });
 
 program
@@ -157,7 +157,7 @@ add
 add
   .command("mcp")
   .argument("[file]", "JSON file with mcpServers or a single server object")
-  .option("--from <target>", "import MCP list from cursor|claude|codex")
+  .option("--from <target>", "import MCP list from cursor|kiro")
   .action((file: string | undefined, opts, cmd) => {
     const store = storeDir(cmd);
     ensureStore(store);
@@ -170,7 +170,7 @@ add
       return;
     }
     if (!file) {
-      console.error("Provide a file or --from cursor|claude|codex");
+      console.error("Provide a file or --from cursor|kiro");
       process.exit(1);
     }
     const ids = addMcpFromFile(file, cfg);
@@ -224,7 +224,7 @@ program
     const store = storeDir(cmd);
     ensureStore(store);
     if (kind !== "skill") {
-      console.error("Only `remove skill <id>` is supported in v0.1");
+      console.error("Only `remove skill <id>` is supported in v0.3");
       process.exit(1);
     }
     const preserved = removeSkill(id, loadConfig(store));

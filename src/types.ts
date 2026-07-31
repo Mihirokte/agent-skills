@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 
-export type TargetId = "cursor" | "claude" | "codex";
+export type TargetId = "cursor" | "kiro" | "zed";
 export type ArtifactKind = "skills" | "mcp" | "hooks";
 
 export interface TargetCapabilities {

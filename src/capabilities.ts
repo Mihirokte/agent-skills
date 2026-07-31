@@ -6,18 +6,20 @@ export const CAPABILITIES: Record<TargetId, TargetCapabilities> = {
     skills: true,
     mcp: true,
     hooks: true,
+    notes: "Cursor CLI uses ~/.cursor (same skill/MCP paths as the app).",
   },
-  claude: {
-    skills: true,
-    mcp: true,
-    hooks: true,
-    notes: "Portable command hooks are translated to Claude's native hook schema.",
-  },
-  codex: {
+  kiro: {
     skills: true,
     mcp: true,
     hooks: false,
-    notes: "MCP is merged into ~/.codex/config.toml; hooks are not supported.",
+    notes: "Skills in ~/.kiro/skills; MCP in ~/.kiro/settings/mcp.json. Hooks unsupported.",
+  },
+  zed: {
+    skills: true,
+    mcp: true,
+    hooks: false,
+    notes:
+      "Skills: ~/.agents/skills. MCP: context_servers in ~/.config/zed/settings.json. External ACP agents still use their own skill/MCP dirs.",
   },
 };
 
@@ -34,21 +36,23 @@ export function targetPaths(target: TargetId) {
         hooksFile: home(".cursor", "hooks.json"),
         hooksScriptsDir: home(".cursor", "hooks"),
       };
-    case "claude":
+    case "kiro":
       return {
-        skillsDir: home(".claude", "skills"),
-        mcpFile: home(".claude.json"),
-        hooksFile: home(".claude", "settings.json"),
-        hooksScriptsDir: home(".claude", "hooks"),
+        skillsDir: home(".kiro", "skills"),
+        mcpFile: home(".kiro", "settings", "mcp.json"),
+        hooksFile: null as string | null,
+        hooksScriptsDir: null as string | null,
       };
-    case "codex":
+    case "zed":
       return {
-        skillsDir: home(".codex", "skills"),
-        mcpFile: home(".codex", "config.toml"),
+        // Official Zed Agent path: https://zed.dev/docs/ai/skills
+        skillsDir: home(".agents", "skills"),
+        // MCP lives in settings.json as context_servers: https://zed.dev/docs/ai/mcp
+        mcpFile: home(".config", "zed", "settings.json"),
         hooksFile: null as string | null,
         hooksScriptsDir: null as string | null,
       };
   }
 }
 
-export const ALL_TARGETS: TargetId[] = ["cursor", "claude", "codex"];
+export const ALL_TARGETS: TargetId[] = ["cursor", "kiro", "zed"];

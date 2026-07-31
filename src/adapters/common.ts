@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { parse, stringify } from "smol-toml";
 import { targetPaths } from "../capabilities.js";
 import {
   expandEnv,
@@ -25,11 +24,17 @@ import {
 } from "../store.js";
 import type {
   BridgeConfig,
-  McpServer,
   McpServers,
   PortableHook,
   TargetId,
 } from "../types.js";
+import {
+  fromZedContextServers,
+  mergeZedContextServers,
+  readZedSettings,
+  toZedContextServers,
+  writeZedSettings,
+} from "./zed-settings.js";
 
 export interface ImportResult {
   imported: string[];
@@ -49,8 +54,14 @@ export function importSkills(target: TargetId, cfg: BridgeConfig): ImportResult 
   ensureDir(storeDir);
 
   for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
+    // Follow symlinks that point at skill directories (common for Kiro).
     const source = path.join(skillsDir, entry.name);
+    const isDir =
+      entry.isDirectory() ||
+      (entry.isSymbolicLink() &&
+        fs.existsSync(source) &&
+        fs.statSync(source).isDirectory());
+    if (!isDir) continue;
     if (!fs.existsSync(path.join(source, "SKILL.md"))) continue;
     const destination = path.join(storeDir, entry.name);
     const sourceHash = hashDir(source);
@@ -157,19 +168,23 @@ export function pushMcp(
   const paths = targetPaths(target);
   if (!paths.mcpFile) return [];
 
-  if (target === "codex") {
-    const existing = readToml(paths.mcpFile);
-    const current =
-      existing.mcp_servers && typeof existing.mcp_servers === "object"
-        ? (existing.mcp_servers as Record<string, unknown>)
-        : {};
-    const converted = Object.fromEntries(
-      Object.entries(servers).map(([id, server]) => [id, toCodexMcp(server)]),
+  if (target === "zed") {
+    // Do not expand secrets into settings.json — Zed settings are often backed up.
+    // Keep $VAR / ${VAR} placeholders; user fills via env or Zed MCP UI.
+    const scrubbed = Object.fromEntries(
+      Object.entries(loadStoreMcp(cfg.storeDir)).filter(([id]) => !excluded.has(id)),
     );
-    const merged = { ...current, ...converted };
-    writeToml(paths.mcpFile, { ...existing, mcp_servers: merged });
+    const settings = readZedSettings(paths.mcpFile);
+    const existing =
+      settings.context_servers && typeof settings.context_servers === "object"
+        ? (settings.context_servers as Record<string, unknown>)
+        : {};
+    const converted = toZedContextServers(scrubbed);
+    const merged = mergeZedContextServers(existing, converted);
+    settings.context_servers = merged;
+    writeZedSettings(paths.mcpFile, settings);
     writeMeta(paths.mcpFile, {
-      hash: hashString(stableJson(merged)),
+      hash: hashString(stableJson(converted)),
       writtenAt: new Date().toISOString(),
       source: "agent-bridge",
     });
@@ -214,34 +229,19 @@ export function pushPortableHooks(
     return hooks.length;
   }
 
-  if (target === "claude") {
-    const existing = readJsonStrict<Record<string, unknown>>(paths.hooksFile, {});
-    const generated = claudeHooks(hooks);
-    const current =
-      existing.hooks && typeof existing.hooks === "object"
-        ? (existing.hooks as Record<string, unknown[]>)
-        : {};
-    writeJson(paths.hooksFile, {
-      ...existing,
-      hooks: mergeHookArrays(current, generated),
-    });
-    return hooks.length;
-  }
   return 0;
 }
 
 export function readTargetMcp(target: TargetId): McpServers {
   const paths = targetPaths(target);
   if (!paths.mcpFile || !fs.existsSync(paths.mcpFile)) return {};
-  if (target === "codex") {
-    const config = readToml(paths.mcpFile);
-    const servers =
-      config.mcp_servers && typeof config.mcp_servers === "object"
-        ? (config.mcp_servers as Record<string, McpServer>)
+  if (target === "zed") {
+    const settings = readZedSettings(paths.mcpFile);
+    const contextServers =
+      settings.context_servers && typeof settings.context_servers === "object"
+        ? (settings.context_servers as Record<string, unknown>)
         : {};
-    return Object.fromEntries(
-      Object.entries(servers).map(([id, server]) => [id, fromCodexMcp(server)]),
-    );
+    return fromZedContextServers(contextServers);
   }
   const raw = readJsonStrict<unknown>(paths.mcpFile, {});
   return extractMcpServers(raw);
@@ -258,35 +258,6 @@ function cursorHooks(
     if (hook.matcher) item.matcher = hook.matcher;
     if (hook.timeoutSeconds) item.timeout = hook.timeoutSeconds;
     (output[hook.event] ??= []).push(item);
-  }
-  return output;
-}
-
-const CLAUDE_EVENT: Record<PortableHook["event"], string> = {
-  sessionStart: "SessionStart",
-  sessionEnd: "SessionEnd",
-  preToolUse: "PreToolUse",
-  postToolUse: "PostToolUse",
-  postToolUseFailure: "PostToolUseFailure",
-  subagentStop: "SubagentStop",
-  beforeSubmitPrompt: "UserPromptSubmit",
-  preCompact: "PreCompact",
-  stop: "Stop",
-};
-
-function claudeHooks(
-  hooks: PortableHook[],
-): Record<string, Array<Record<string, unknown>>> {
-  const output: Record<string, Array<Record<string, unknown>>> = {};
-  for (const hook of hooks) {
-    const handler: Record<string, unknown> = {
-      type: "command",
-      command: `agent-bridge hook-run ${hook.id}`,
-    };
-    if (hook.timeoutSeconds) handler.timeout = hook.timeoutSeconds;
-    const group: Record<string, unknown> = { hooks: [handler] };
-    if (hook.matcher) group.matcher = hook.matcher;
-    (output[CLAUDE_EVENT[hook.event]] ??= []).push(group);
   }
   return output;
 }
@@ -336,45 +307,6 @@ function bridgeHookId(item: Record<string, unknown>): string | undefined {
 function commandHookId(command: string): string | undefined {
   const match = command.match(/^agent-bridge hook-run ([a-z0-9][a-z0-9._-]*)$/);
   return match?.[1];
-}
-
-function readToml(file: string): Record<string, unknown> {
-  if (!fs.existsSync(file)) return {};
-  return parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
-}
-
-function writeToml(file: string, data: Record<string, unknown>): void {
-  ensureDir(path.dirname(file));
-  fs.writeFileSync(file, stringify(data as never), "utf8");
-}
-
-function toCodexMcp(server: McpServer): Record<string, unknown> {
-  const output: Record<string, unknown> = {};
-  if (server.command) output.command = server.command;
-  if (server.args) output.args = server.args;
-  if (server.env) output.env = server.env;
-  if (server.url) output.url = server.url;
-  if (server.headers) output.http_headers = server.headers;
-  for (const key of [
-    "enabled",
-    "required",
-    "startup_timeout_sec",
-    "tool_timeout_sec",
-    "enabled_tools",
-    "disabled_tools",
-  ]) {
-    if (key in server) output[key] = server[key];
-  }
-  return output;
-}
-
-function fromCodexMcp(server: McpServer): McpServer {
-  const output = { ...server };
-  if (server.http_headers && typeof server.http_headers === "object") {
-    output.headers = server.http_headers as Record<string, string>;
-    delete output.http_headers;
-  }
-  return output;
 }
 
 function stableJson(value: unknown): string {

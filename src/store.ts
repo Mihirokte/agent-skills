@@ -96,8 +96,8 @@ export function defaultConfig(storeDir = defaultStore()): BridgeConfig {
     storeDir,
     targets: {
       cursor: { enabled: true },
-      claude: { enabled: true },
-      codex: { enabled: true },
+      kiro: { enabled: true },
+      zed: { enabled: true },
     },
     linkSkills: false,
   };
@@ -108,8 +108,38 @@ export function configPath(storeDir: string): string {
 }
 
 export function loadConfig(storeDir = defaultStore()): BridgeConfig {
-  const cfg = readJson(configPath(storeDir), defaultConfig(storeDir));
-  cfg.storeDir = storeDir;
+  const raw = readJson<Record<string, unknown>>(
+    configPath(storeDir),
+    defaultConfig(storeDir) as unknown as Record<string, unknown>,
+  );
+  const defaults = defaultConfig(storeDir);
+  const previous =
+    raw.targets && typeof raw.targets === "object"
+      ? (raw.targets as Record<string, { enabled?: boolean }>)
+      : {};
+  const cfg: BridgeConfig = {
+    version: 1,
+    storeDir,
+    linkSkills: Boolean(raw.linkSkills),
+    targets: {
+      cursor: { enabled: previous.cursor?.enabled ?? defaults.targets.cursor.enabled },
+      kiro: {
+        enabled:
+          previous.kiro?.enabled ??
+          // Migrate old Claude/Codex-era configs to Kiro-on by default.
+          true,
+      },
+      zed: { enabled: previous.zed?.enabled ?? defaults.targets.zed.enabled },
+    },
+  };
+  if (
+    previous.claude !== undefined ||
+    previous.codex !== undefined ||
+    previous.kiro === undefined ||
+    previous.zed === undefined
+  ) {
+    saveConfig(cfg);
+  }
   return cfg;
 }
 
