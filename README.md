@@ -1,47 +1,111 @@
-# Agent skills and AI configuration inventory
+# Agent Bridge
 
-This directory is the **canonical hub** for machine-wide agent skills and related inventory on this PC. It is also a **snapshot and index** of MCP servers, Cursor skills/rules, Claude Code settings, VS Code / Antigravity / Gemini-related settings, CLI tools, IDE extensions, and workspace-level agent instructions.
+**Add a skill or MCP server once. Use it in Cursor, Claude Code, and Codex.**
 
-## `AGENT_SKILLS_ROOT` (environment variable)
+Agent Bridge is a narrow, local-first sync package for the configuration that
+AI coding agents can genuinely share:
 
-- **Name:** `AGENT_SKILLS_ROOT`
-- **Value (this machine):** `C:\Users\rentk\mihir\agent-skills` — set with **user**-level `setx` (restart Cursor / VS Code / terminals so new processes inherit it).
-- **Cursor skills:** Author under **`%AGENT_SKILLS_ROOT%\cursor\skills\<name>\SKILL.md`**.  
-  **`%USERPROFILE%\.cursor\skills`** is a **directory junction** to that folder (Cursor does not support a custom skills path in settings).
-- **Policies:** Global Cursor rule `~/.cursor/rules/agent-skills-root.mdc` (always on); Claude Code `~/.claude/rules/agent-skills-root.md`; shared chat instructions in [`shared/instructions/00-always.md`](./shared/instructions/00-always.md), registered in **Cursor, VS Code, and Antigravity** via `chat.instructionsFilesLocations`.
-- **PowerShell profile:** `Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1` bootstraps `AGENT_SKILLS_ROOT` from the user registry or falls back to this hub (installed by **`scripts/Install-AgentSkillsEnv.ps1`**).
-- **Foolproof guide:** [`FOOLPROOF-SETUP.md`](./FOOLPROOF-SETUP.md).
-- **Scripts:** [`scripts/Verify-AgentSkillsEnv.ps1`](./scripts/Verify-AgentSkillsEnv.ps1) (health check), [`scripts/Install-AgentSkillsEnv.ps1`](./scripts/Install-AgentSkillsEnv.ps1) (idempotent repair).
+- Agent Skills (`SKILL.md` directories)
+- MCP servers (JSON ↔ Codex TOML adapters)
+- A conservative subset of portable command hooks
 
-## How to use
+It does not copy editor settings, chat history, credentials, rules dumps, or
+unsupported features.
 
-1. Read [`INVENTORY.md`](./INVENTORY.md) for the canonical structured list.
-2. Read [`SCAN-METHODOLOGY.md`](./SCAN-METHODOLOGY.md) for **coverage and gaps** (e.g. `ElevatedDiagnostics` access denied, paths not crawled).
-3. Read [`PRIVACY-NOTE.md`](./PRIVACY-NOTE.md) before sharing anything — **`config-snapshots/claude-code-global-state.json` is sensitive.**
+## Install
 
-## Directory map
+Node 22 or newer is required.
 
-| Path | Contents |
-|------|-----------|
-| `config-snapshots/` | `cursor-global-mcp.json`, VS Code `mcp.json`, Cursor/Antigravity/VS Code `settings.json`, Claude Desktop config, **full `claude-code-global-state.json`** (`~/.claude.json`) |
-| `cursor/` | Hub copies of global rules + personal skills tree (`cursor/skills/` is the real store; `~/.cursor/skills` junction); [`CURSOR-AGENT-TOOLS.md`](./cursor/CURSOR-AGENT-TOOLS.md). The **`debate`** skill: orchestrator `cursor/skills/debate/debate.py`; **Debate Hall** UI in `cursor/skills/debate/hall_web/` (`hall_server.py`, run artifacts under each target’s `.debate/runs/`, plus `/api/hall/stop-agents`); companion **`debate-shutdown`** skill for stopping agents only; ephemeral dashboard `cursor/skills/debate/web/`. Claude Code: hub copy [`claude/debate-skill.md`](./claude/debate-skill.md) installs to `~/.claude/rules/debate-skill.md` via [`scripts/Install-AgentSkillsEnv.ps1`](./scripts/Install-AgentSkillsEnv.ps1). |
-| `shared/instructions/` | Cross-tool chat instructions (`00-always.md`) loaded by Cursor / VS Code / Antigravity |
-| `workspace-rules/` | Per-repo `.cursor` rules, `AGENTS.md`, legacy `x-research-skill` |
-| `workspace-instructions/` | Legacy `CLAUDE.md` copies from `mihir/old/*` |
-| `claude/` | Desktop MCP extension registry, Claude Code `settings*.json`, marketplace registry, **`claude-code-projects-mcp-snapshot.json`**, **`claude-code-feature-flags-plugins.json`**, `all-official-marketplace-SKILL-md-paths.txt` |
-| `gemini/` | Profile `settings.json`, `google-workspace` extension manifest, **`mihir-old-dot-gemini-settings.json`** (Figma + Blender MCP in old repo) |
-| `extensions/` | Full extension folder lists + [`IDE-AI-EXTENSIONS.md`](./extensions/IDE-AI-EXTENSIONS.md) |
-| `cli/` | [`GLOBAL-NPM-PACKAGES.md`](./cli/GLOBAL-NPM-PACKAGES.md) |
-| `ollama/` | [`NOTE.md`](./ollama/NOTE.md) |
-| `scripts/` | `Verify-AgentSkillsEnv.ps1`, `Install-AgentSkillsEnv.ps1` |
-| `FOOLPROOF-SETUP.md` | Recovery, checklists, failure modes |
+```bash
+npm install -g github:Mihirokte/agent-skills
+agent-bridge init
+agent-bridge sync
+agent-bridge status
+```
 
-## Source locations not fully duplicated
+`init` seeds the bundled skills into `~/.agent-bridge/skills` and materializes
+them on the first sync. Use `--no-bundled` for an empty store.
 
-- Claude Code plugin marketplace clone: `C:\Users\rentk\.claude\plugins\marketplaces\claude-plugins-official\`
-- Claude Code session subagent transcripts: `C:\Users\rentk\.claude\projects\*\*\subagents\`
-- Other projects on disk (e.g. under `C:\Users\rentk\inomy`) appear in **`~/.claude.json`** but were not deep-scanned for repo-local `.cursor` / `CLAUDE.md`.
+## Add once
 
-## Regenerating
+```bash
+# A directory containing SKILL.md
+agent-bridge add skill ./my-skill
 
-Re-run discovery (PowerShell safe-path walks, selective copies) and merge into this tree; update the date in this README.
+# A JSON MCP definition, or import from an agent
+agent-bridge add mcp ./mcp.json
+agent-bridge add mcp --from cursor
+agent-bridge add mcp --from claude
+agent-bridge add mcp --from codex
+
+# Explicitly portable hook manifest
+agent-bridge add hook ./hook.json
+
+# Keep native skill/MCP paths synchronized
+agent-bridge watch
+```
+
+## Capability matrix
+
+| Artifact | Cursor | Claude Code | Codex |
+|----------|--------|-------------|-------|
+| Skills | `~/.cursor/skills` | `~/.claude/skills` | `~/.codex/skills` |
+| MCP | `~/.cursor/mcp.json` | `~/.claude.json` | `~/.codex/config.toml` |
+| Portable hooks | native `hooks.json` | native `settings.json` schema | unsupported |
+
+Arbitrary hooks are not auto-imported because event payloads and response
+contracts differ. `add hook` accepts only the documented portable subset and
+generates native configurations. See
+[the full matrix](docs/CAPABILITY_MATRIX.md).
+
+## Bundled skills
+
+The old machine inventory has been reduced to reusable skills. There is one
+copy of each runtime:
+
+| Skill | Purpose |
+|-------|---------|
+| `agent-bridge` | Teaches agents to use this package when adding shared config |
+| `aws` | Safe, profile-agnostic AWS CLI workflow |
+| `swarm` | Native multi-agent decomposition and synthesis |
+| `prism-status` | PRISM MCP status workflow |
+| `debate` | Thin launcher for the separately installed Debate Hall app |
+| `debate-shutdown` | Stops Debate Hall workers without duplicating its runtime |
+
+Debate Hall implementation files remain in `debate-app`; this repository ships
+only its small integration skill.
+
+## Conflict safety
+
+The canonical store is `~/.agent-bridge`.
+
+1. New native skills/MCP servers are imported.
+2. Matching items are left alone.
+3. Divergent items are **not overwritten**. Both versions remain intact and a
+   copy is written under `~/.agent-bridge/conflicts/`.
+4. Non-conflicting canonical items are materialized to all enabled targets.
+
+The watch daemon uses the same conflict-safe path and suppresses its own write
+events to avoid loops.
+
+## Secrets
+
+Likely MCP secrets are replaced with `${ENV_NAME}` in the canonical JSON. The
+local value is kept in `~/.agent-bridge/secrets.env`, which must never be
+committed. See [Privacy](docs/PRIVACY.md).
+
+## Development
+
+```bash
+npm install
+npm run check
+node dist/cli.js --help
+```
+
+## Why another sync tool?
+
+Broader tools sync rules, settings, history, and other agent-specific state.
+Agent Bridge intentionally stays small: capability-gated skills, MCP, and
+portable hooks with explicit conflict handling.
+
+MIT licensed.

@@ -1,0 +1,6 @@
+{
+  "id": "example-stop-audit",
+  "event": "stop",
+  "command": "node /absolute/path/to/audit.mjs",
+  "timeoutSeconds": 10
+}

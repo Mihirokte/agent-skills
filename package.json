@@ -1,0 +1,58 @@
+{
+  "name": "agent-bridge",
+  "version": "0.1.0",
+  "description": "Sync skills, MCP servers, and hooks across Cursor, Claude Code, and Codex",
+  "type": "module",
+  "bin": {
+    "agent-bridge": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "templates",
+    "skills",
+    "docs",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "check": "npm run build && npm test",
+    "dev": "tsc --watch",
+    "start": "node dist/cli.js",
+    "test": "node --test dist/**/*.test.js",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run check"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "cursor",
+    "claude-code",
+    "codex",
+    "mcp",
+    "skills",
+    "hooks",
+    "agent"
+  ],
+  "author": "Mihirokte",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mihirokte/agent-skills.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Mihirokte/agent-skills/issues"
+  },
+  "homepage": "https://github.com/Mihirokte/agent-skills#readme",
+  "dependencies": {
+    "chokidar": "^4.0.3",
+    "commander": "^13.1.0",
+    "smol-toml": "^1.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.8.2"
+  }
+}
